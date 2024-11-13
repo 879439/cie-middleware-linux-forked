@@ -11,6 +11,7 @@
 #include <fstream>
 #include <string>
 #include <dlfcn.h>
+#include <vector>
 
  // directive for PKCS#11
 #include "cryptoki.h"
@@ -773,7 +774,7 @@ int main(int argc, char* argv[])
 #else
 
 	//const char* szCryptoki = "libcie-pkcs11.so";
-	const char* szCryptoki = "libcie-pkcs11.so";
+	const char* szCryptoki = "./libcie-pkcs11.so";
 	std::cout << "Load Module " << szCryptoki << std::endl;
 
 	void* hModule = dlopen(szCryptoki, RTLD_LOCAL | RTLD_LAZY);
@@ -788,6 +789,8 @@ int main(int argc, char* argv[])
 	C_GETFUNCTIONLIST pfnGetFunctionList = (C_GETFUNCTIONLIST)GetProcAddress(hModule, "C_GetFunctionList");
 #else
 	C_GETFUNCTIONLIST pfnGetFunctionList = (C_GETFUNCTIONLIST)dlsym(hModule, "C_GetFunctionList");
+	void (*CacheGetPIN_ptr)(const char *, std::vector<uint8_t>&);
+	CacheGetPIN_ptr = (void (*)(const char *, std::vector<uint8_t>&)) dlsym(hModule, "pippo");
 #endif
 	if (!pfnGetFunctionList)
 	{
@@ -847,6 +850,7 @@ int main(int argc, char* argv[])
 			std::cout << "12 Hash SHA1" << std::endl;
 			std::cout << "13 Hash SHA256" << std::endl;
 			std::cout << "14 Hash MD5" << std::endl;
+			std::cout << "15 Custom test" << std::endl;
 			std::cout << "20 Exit" << std::endl;
 			std::cout << "Insert the test number:" << std::endl;
 			std::cin >> sCommandLine;
@@ -1401,6 +1405,11 @@ int main(int argc, char* argv[])
 
 			close();
 			std::cout << "-> Test concluso" << std::endl;
+		}else if (strcmp(szCmd, "15") == 0)
+		{	
+			std::vector<BYTE> EncPINBuf;
+			CacheGetPIN_ptr("683756180330", EncPINBuf);
+			BYTE* pin= EncPINBuf.data();
 		}
 		else if (strcmp(szCmd, "20") == 0)
 		{

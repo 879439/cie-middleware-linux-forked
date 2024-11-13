@@ -88,6 +88,7 @@ public:
 	void InitExtAuthKeyParam();
 	void DHKeyExchange();
 	void DAPP();
+	StatusWord CUSTOM();
 	StatusWord VerifyPIN(ByteArray &PIN);
 	StatusWord VerifyPUK(ByteArray &PUK);
 	StatusWord UnblockPIN();

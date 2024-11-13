@@ -28,6 +28,10 @@ void GetCertInfo(CryptoPP::BufferedTransformation & certin,
                CryptoPP::Integer& pubExp);
 
 int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, DWORD *respSize) {
+	
+	LOG_DEBUG("TokenTransmitCallback - Apdu:");
+    LOG_BUFFER(apdu, apduSize);
+
 	if (apduSize == 2) {
 		WORD code = *(WORD*)apdu;
 		if (code == 0xfffd) {
@@ -71,7 +75,11 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
                   
 	//ODS(String().printf("APDU: %s\n", dumpHexData(ByteArray(apdu, apduSize), String()).lock()).lock());
 	auto ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
-    if(ris == SCARD_W_RESET_CARD || ris == SCARD_W_UNPOWERED_CARD)
+    
+	LOG_DEBUG("TokenTransmitCallback - Smart card response:");
+    LOG_BUFFER(resp, *respSize);
+
+	if(ris == SCARD_W_RESET_CARD || ris == SCARD_W_UNPOWERED_CARD)
     {
         LOG_ERROR("TokenTransmitCallback - Card reset error: %x", ris);
         
@@ -81,8 +89,11 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
         {
             LOG_ERROR("TokenTransmitCallback - Errore reconnect %d", ris);
         }
-        else
+        else{
             ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
+			LOG_DEBUG("TokenTransmitCallback - Smart card response:");
+            LOG_BUFFER(resp, *respSize); 
+		}
     }
     
     if (ris != SCARD_S_SUCCESS) {

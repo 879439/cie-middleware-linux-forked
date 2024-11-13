@@ -141,7 +141,9 @@ void IAS::Sign(ByteArray &data, ByteDynArray &signedData) {
     if ((sw = SendAPDU_SM(VarToByteArray(Sign), data, signedData)) != 0x9000){
         LOG_ERROR("IAS::Sign error!");
 		throw scard_error(sw);
-}
+	}
+	LOG_DEBUG("IAS::Sign - Buffer signed data:");
+	LOG_BUFFER(signedData.data(), signedData.size());
 
 }
 
@@ -152,6 +154,30 @@ StatusWord IAS::VerifyPUK(ByteArray &PIN) {
     LOG_DEBUG("IAS::VerifyPUK");
 	uint8_t verifyPIN[] = { 0x00, 0x20, 0x00, CIE_PUK_ID };
 	return SendAPDU_SM(VarToByteArray(verifyPIN), PIN, resp);
+}
+
+StatusWord IAS::CUSTOM() {
+	StatusWord sw;
+	ByteDynArray resp;
+	ByteDynArray content;
+	CASNParser parser;
+	uint8_t getPINDoup[] = { 0x00, 0xcb, 0x3f, 0xff };
+	uint8_t getPIuopData[] = { 0x4d, 0x09, 0x70, 0x07, 0xBF, 0x81, 0x01, 0x03, 0x7f, 0x41, 0x80 };
+    LOG_DEBUG("IAS::CUSTOM");
+	sw = SendAPDU_SM(VarToByteArray(getPINDoup), VarToByteArray(getPIuopData), resp);
+	LOG_DEBUG("IAS::CUSTOM: resp");
+	LOG_BUFFER(resp.data(), resp.size());
+	uint8_t getPINDoup1[] = { 0x00, 0xcb, 0x3f, 0xff };
+	uint8_t getPIuopData1[] = { 0x4d, 0x08, 0x70, 0x06, 0xBF, 0xFB, 0x01, 0x02, 0x7b, 0x80 };
+    LOG_DEBUG("IAS::CUSTOM1");
+	sw = SendAPDU(VarToByteArray(getPINDoup1), VarToByteArray(getPIuopData1), resp);
+
+	//parser.Parse(resp);
+	//content = parser.tags[1]->content;
+	LOG_DEBUG("IAS::CUSTOM1: resp");
+	LOG_BUFFER(resp.data(), resp.size());
+	return sw;
+
 }
 
 StatusWord IAS::VerifyPIN(ByteArray &PIN) {

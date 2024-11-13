@@ -20,14 +20,14 @@ using namespace CryptoPP;
 
 int encrypt(std::string& message, std::string& ciphertext)
 {
-    byte key[ CryptoPP::AES::DEFAULT_KEYLENGTH ], iv[ CryptoPP::AES::BLOCKSIZE ];
+    CryptoPP::byte key[ CryptoPP::AES::DEFAULT_KEYLENGTH ], iv[ CryptoPP::AES::BLOCKSIZE ];
     memset( key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH );
     memset( iv, 0x00, CryptoPP::AES::BLOCKSIZE );
     
     std::string enckey = ENCRYPTION_KEY;
     
-    byte digest[SHA1::DIGESTSIZE];
-    CryptoPP::SHA1().CalculateDigest(digest, (byte*)enckey.c_str(), enckey.length());
+    CryptoPP::byte digest[SHA1::DIGESTSIZE];
+    CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte*)enckey.c_str(), enckey.length());
     memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH );
     //
     // Create Cipher Text
@@ -44,14 +44,14 @@ int encrypt(std::string& message, std::string& ciphertext)
 
 int decrypt(std::string& ciphertext, std::string& message)
 {
-    byte key[ CryptoPP::AES::DEFAULT_KEYLENGTH ], iv[ CryptoPP::AES::BLOCKSIZE ];
+    CryptoPP::byte key[ CryptoPP::AES::DEFAULT_KEYLENGTH ], iv[ CryptoPP::AES::BLOCKSIZE ];
     memset( key, 0x00, CryptoPP::AES::DEFAULT_KEYLENGTH );
     memset( iv, 0x00, CryptoPP::AES::BLOCKSIZE );
     
     std::string enckey = ENCRYPTION_KEY;
     
-    byte digest[SHA1::DIGESTSIZE];
-    CryptoPP::SHA1().CalculateDigest(digest, (byte*)enckey.c_str(), enckey.length());
+    CryptoPP::byte digest[SHA1::DIGESTSIZE];
+    CryptoPP::SHA1().CalculateDigest(digest, (CryptoPP::byte*)enckey.c_str(), enckey.length());
     memcpy(key, digest, CryptoPP::AES::DEFAULT_KEYLENGTH );
     
     //

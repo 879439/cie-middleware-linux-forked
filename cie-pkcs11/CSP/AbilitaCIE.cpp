@@ -286,6 +286,12 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
                 free(readers);
                 return CKR_GENERAL_ERROR;
             }
+
+            //ias.CUSTOM();
+            //ias.UnblockPIN();
+            //ByteDynArray PIN;
+            //PIN.append(ByteArray((uint8_t*)szPIN, 8));
+            //ias.VerifyPIN(PIN);
             
             
             progressCallBack(45, "Lettura seriale");
@@ -363,7 +369,7 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
                         OID oid(attributes);
                         if(oid == OID_GIVENNAME)
                         {
-                            byte tag = 0;
+                            CryptoPP::byte tag = 0;
                             attributes.Peek(tag);
                             
                             CryptoPP::BERDecodeTextString(
@@ -373,7 +379,7 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
                         }
                         else if(oid == OID_SURNAME)
                         {
-                            byte tag = 0;
+                            CryptoPP::byte tag = 0;
                             attributes.Peek(tag);
                             
                             CryptoPP::BERDecodeTextString(

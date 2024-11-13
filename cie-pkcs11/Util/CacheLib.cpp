@@ -327,6 +327,12 @@ void CacheGetPIN(const char *PAN, std::vector<uint8_t>&PIN) {
     
 }
 
+extern "C" { 
+	void pippo(const char *PAN, std::vector<uint8_t>&PIN) {
+		CacheGetPIN(PAN, PIN);
+	}
+}
+
 
 
 void CacheSetData(const char *PAN, uint8_t *certificate, int certificateSize, uint8_t *FirstPIN, int FirstPINSize) {
