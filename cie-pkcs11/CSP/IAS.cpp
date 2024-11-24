@@ -420,6 +420,7 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
 
 	ByteDynArray resp;
 	readfile(0x1004, DappKey);
+	LOG_BUFFER(DappKey.data(), DappKey.size());
 
 	CASNParser parser;
 	parser.Parse(DappKey);
@@ -616,6 +617,7 @@ void IAS::DHKeyExchange() {
     CRSA rsa(dh_p, dh_prKey);
 
 	dh_pubKey = rsa.RSA_PURE(dhg);
+	LOG_BUFFER(dh_pubKey.data(), dh_pubKey.size());
 
 //    printf("\n\ndhpubKey: %s", dumpHexData(dh_pubKey).c_str());
 
@@ -625,7 +627,8 @@ void IAS::DHKeyExchange() {
     ByteArray keyIdBa = VarToByteArray(keyId);
 
 	d1.setASN1Tag(0x80, algoBa).append(ASN1Tag(0x83, keyIdBa)).append(ASN1Tag(0x91, dh_pubKey));
-
+	LOG_DEBUG("D1");
+	LOG_BUFFER(d1.data(), d1.size());
 	uint8_t MSE_SET[] = { 0x00, 0x22, 0x41, 0xa6 };
 	StatusWord sw;
 	if ((sw = SendAPDU(VarToByteArray(MSE_SET), d1, resp)) != 0x9000)
@@ -637,6 +640,8 @@ void IAS::DHKeyExchange() {
 
 	asn1.Parse(resp);
 	dh_ICCpubKey = asn1.tags[0]->tags[0]->content;
+	LOG_DEBUG("dh_ICCpubKey:");
+	LOG_BUFFER(dh_ICCpubKey.data(), dh_ICCpubKey.size());
 
 //    printf("\ndhICCpubKey: %s", dumpHexData(dh_ICCpubKey).c_str());
 
@@ -652,6 +657,8 @@ void IAS::DHKeyExchange() {
 	sessENC = sha256.Digest(ByteDynArray(secret).append(VarToByteArray(diffENC))).left(16);
 	sessMAC = sha256.Digest(ByteDynArray(secret).append(VarToByteArray(diffMAC))).left(16);
 
+	LOG_DEBUG("sessENC");
+	LOG_BUFFER(sessENC.data(), sessENC.size());
 //    printf("\nsessENC: %s", dumpHexData(sessENC).c_str());
 //    printf("\nsessMAC: %s\n", dumpHexData(sessMAC).c_str());
 
@@ -1088,6 +1095,8 @@ void IAS::InitDHParam() {
 		throw scard_error(sw);
 		parser.Parse(resp);
 		dh_p = parser.tags[0]->tags[0]->tags[0]->tags[0]->content;
+		LOG_DEBUG("DH_P:");
+		LOG_BUFFER(dh_p.data(), dh_p.size());
 
 		uint8_t getDHDuopData_q[] = { 0x4D, 0x0A, 0x70, 0x08, 0xBF, 0xA1, 0x01, 0x04, 0xA3, 0x02, 0x99, 0x00 };
 		if ((sw = SendAPDU(VarToByteArray(getDHDoup), VarToByteArray(getDHDuopData_q), resp)) != 0x9000)
