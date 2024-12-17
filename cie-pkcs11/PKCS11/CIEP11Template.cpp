@@ -14,6 +14,8 @@
 #include "../Util/CryptoppUtils.h"
 #include "../LOGGER/Logger.h"
 
+#include "../Crypto/sha512.h"
+
 using namespace CryptoPP;
 using namespace lcp;
 using namespace CieIDLogger;
@@ -254,7 +256,7 @@ ByteDynArray SM(ByteArray &keyEnc, ByteArray &keySig, ByteArray &apdu, ByteArray
 	return elabResp;
 }
 
-void mitm_out(BYTE *apdu, DWORD apduSize, SCARDHANDLE hCard, const SCARD_IO_REQUEST *pioSendPci) {
+void mitm_out(BYTE *apdu, DWORD apduSize) {
 	prev_apduSize = curr_apduSize;
 	prev_apdu = (BYTE *) realloc(prev_apdu, sizeof(BYTE) * prev_apduSize);
 	memcpy(prev_apdu, curr_apdu, prev_apduSize);
@@ -707,7 +709,6 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 				ByteArray challengeBa = challenge.right(4);
     			ByteArray rndIFDBa = rndIFD.right(4);
 				
-				
 				sessSSC_ICC.set(&challengeBa, &rndIFDBa);
 				sessSSC_IFD.set(&challengeBa, &rndIFDBa);
 			} else {
@@ -783,7 +784,7 @@ int TokenTransmitCallback(CSlot *data, BYTE *apdu, DWORD apduSize, BYTE *resp, D
                   
 	//ODS(String().printf("APDU: %s\n", dumpHexData(ByteArray(apdu, apduSize), String()).lock()).lock());
 	// START MITM
-    mitm_out(apdu, apduSize, data->hCard, SCARD_PCI_T1);
+    mitm_out(apdu, apduSize);
 	auto ris = SCardTransmit(data->hCard, SCARD_PCI_T1, apdu, apduSize, NULL, resp, respSize);
     mitm_in(resp, respSize);
 	// END MITM
@@ -877,6 +878,15 @@ void CIEtemplateInitSession(void *pTemplateData){
 			ByteDynArray resp;
 			cie->ias.SelectAID_CIE();
 			cie->ias.ReadDappPubKey(resp);
+
+			//ByteArray intAuthData(resp.left(GetASN1DataLenght(resp)));
+			//ByteDynArray SOD;
+            //cie->ias.ReadSOD(SOD);
+			//CSHA512 sha512;
+			//std::map<uint8_t, ByteDynArray> hashSet;
+            //hashSet[0xa4] = sha512.Digest(intAuthData);
+            //cie->ias.VerificaSODPSS(SOD, hashSet);
+
 			cie->ias.InitEncKey();
 			cie->ias.GetCertificate(certRaw, true);
 		}
