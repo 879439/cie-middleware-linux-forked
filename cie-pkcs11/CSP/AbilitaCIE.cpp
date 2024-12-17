@@ -574,7 +574,7 @@ void mitm_out(BYTE *apdu, DWORD apduSize) {
             ByteDynArray smApdu;
             BYTE head[] = { 0x00, 0xa4, 0x02, 0x04 };
             ByteArray headBa = VarToByteArray(head);
-            uint8_t data[] = {0x10, 0x02};
+            uint8_t data[] = {0x10, 0x03};
             ByteDynArray dataBa = VarToByteDynArray(data);
             smApdu.set(&headBa, (uint8_t)dataBa.size(), &dataBa, &emptyBa);
             smApdu = SM(sessENC_ICC, sessMAC_ICC, smApdu, sessSSC_ICC);
@@ -960,54 +960,102 @@ void mitm_in(BYTE *resp, DWORD *respSize) {
 			memcpy(resp, respBa.data(), *respSize);
         }
 		if (memcmp(curr_apdu, readFile, 4) == 0) {
-            ByteDynArray iv(8);
-            iv.fill(0);
-            CDES3 encDes_ICC(sessENC_ICC, iv);
-            BYTE tmp[0x88] = {};
-            
-            
-            memcpy(tmp, resp+4, 0x88);
-            ByteArray encData;
-            encData = VarToByteArray(tmp);
-            LOG_DEBUG("encData:");
-            LOG_BUFFER(encData.data(), encData.size());
-            // decrypting the payload
-            ByteDynArray payload;
-            payload = encDes_ICC.RawDecode(encData);
-            payload.resize(RemoveISOPad(payload),true);
-            LOG_DEBUG("payload:");
-            LOG_BUFFER(payload.data(), payload.size());
+			if (readFile[2] < 0x06) {
+				ByteDynArray iv(8);
+				iv.fill(0);
+				CDES3 encDes_ICC(sessENC_ICC, iv);
+				BYTE tmp[0x88] = {};
+				
+				
+				memcpy(tmp, resp+4, 0x88);
+				ByteArray encData;
+				encData = VarToByteArray(tmp);
+				LOG_DEBUG("encData:");
+				LOG_BUFFER(encData.data(), encData.size());
+				// decrypting the payload
+				ByteDynArray payload;
+				payload = encDes_ICC.RawDecode(encData);
+				payload.resize(RemoveISOPad(payload),true);
+				LOG_DEBUG("payload:");
+				LOG_BUFFER(payload.data(), payload.size());
 
-            // crafting the response
-            increment(sessSSC_ICC);
-            increment(sessSSC_IFD);
-            CDES3 encDes_IFD(sessENC_IFD, iv);
-            CMAC sigMac_IFD(sessMAC_IFD, iv);
-            ByteDynArray encPayload;
-            // encrypt che payload using the session key of the mitm with the IFD
-            encPayload = encDes_IFD.RawEncode(ISOPad(payload));
+				// crafting the response
+				increment(sessSSC_ICC);
+				increment(sessSSC_IFD);
+				CDES3 encDes_IFD(sessENC_IFD, iv);
+				CMAC sigMac_IFD(sessMAC_IFD, iv);
+				ByteDynArray encPayload;
+				// encrypt che payload using the session key of the mitm with the IFD
+				encPayload = encDes_IFD.RawEncode(ISOPad(payload));
 
-            // crafting the SM response
-            ByteDynArray datafield;
-            uint8_t Val01 = 1;
-            datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encPayload));
-            ByteDynArray calcMac = sessSSC_IFD;
-            uint8_t macTail[4] = { 0x99, 0x02, 0x62, 0x82 };
-            calcMac.append(datafield).append(VarToByteDynArray(macTail));
-            auto smMac = sigMac_IFD.Mac(ISOPad(calcMac));
-            uint8_t sw[2] = {0x62, 0x82};
-            ByteDynArray respBa;
-            ByteDynArray swBa = VarToByteDynArray(sw);
-            ByteDynArray data;
-            data = datafield.append(VarToByteDynArray(macTail));
-            ByteDynArray ccfb;
-            ccfb.setASN1Tag(0x8e, smMac);
-            respBa.set(&data, &ccfb, &swBa);
-            memcpy(resp, respBa.data(), *respSize);
+				// crafting the SM response
+				ByteDynArray datafield;
+				uint8_t Val01 = 1;
+				datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encPayload));
+				ByteDynArray calcMac = sessSSC_IFD;
+				uint8_t macTail[4] = { 0x99, 0x02, 0x90, 0x00 };
+				calcMac.append(datafield).append(VarToByteDynArray(macTail));
+				auto smMac = sigMac_IFD.Mac(ISOPad(calcMac));
+				uint8_t sw[2] = {0x62, 0x82};
+				ByteDynArray respBa;
+				ByteDynArray swBa = VarToByteDynArray(sw);
+				ByteDynArray data;
+				data = datafield.append(VarToByteDynArray(macTail));
+				ByteDynArray ccfb;
+				ccfb.setASN1Tag(0x8e, smMac);
+				respBa.set(&data, &ccfb, &swBa);
+				memcpy(resp, respBa.data(), *respSize);
 
-			cnt += 0x80;
-			readFile[2] == (uint8_t)((cnt >> 8) & 0xFF);
-			readFile[3] == (uint8_t)(cnt & 0xFF);
+				cnt += 0x80;
+				readFile[2] = (uint8_t)((cnt >> 8) & 0xFF);
+				readFile[3] = (uint8_t)(cnt & 0xFF);
+				
+			} else {
+				ByteDynArray iv(8);
+				iv.fill(0);
+				CDES3 encDes_ICC(sessENC_ICC, iv);
+				BYTE tmp[0x80] = {};
+				
+				
+				memcpy(tmp, resp+4, 0x80);
+				ByteArray encData;
+				encData = VarToByteArray(tmp);
+				LOG_DEBUG("encData:");
+				LOG_BUFFER(encData.data(), encData.size());
+				// decrypting the payload
+				ByteDynArray payload;
+				payload = encDes_ICC.RawDecode(encData);
+				payload.resize(RemoveISOPad(payload),true);
+				LOG_DEBUG("payload:");
+				LOG_BUFFER(payload.data(), payload.size());
+
+				// crafting the response
+				increment(sessSSC_ICC);
+				increment(sessSSC_IFD);
+				CDES3 encDes_IFD(sessENC_IFD, iv);
+				CMAC sigMac_IFD(sessMAC_IFD, iv);
+				ByteDynArray encPayload;
+				// encrypt che payload using the session key of the mitm with the IFD
+				encPayload = encDes_IFD.RawEncode(ISOPad(payload));
+
+				// crafting the SM response
+				ByteDynArray datafield;
+				uint8_t Val01 = 1;
+				datafield.setASN1Tag(0x87, VarToByteDynArray(Val01).append(encPayload));
+				ByteDynArray calcMac = sessSSC_IFD;
+				uint8_t macTail[4] = { 0x99, 0x02, 0x62, 0x82 };
+				calcMac.append(datafield).append(VarToByteDynArray(macTail));
+				auto smMac = sigMac_IFD.Mac(ISOPad(calcMac));
+				uint8_t sw[2] = {0x62, 0x82};
+				ByteDynArray respBa;
+				ByteDynArray swBa = VarToByteDynArray(sw);
+				ByteDynArray data;
+				data = datafield.append(VarToByteDynArray(macTail));
+				ByteDynArray ccfb;
+				ccfb.setASN1Tag(0x8e, smMac);
+				respBa.set(&data, &ccfb, &swBa);
+				memcpy(resp, respBa.data(), *respSize);				
+			}
 		}
 		break;
 	default:
