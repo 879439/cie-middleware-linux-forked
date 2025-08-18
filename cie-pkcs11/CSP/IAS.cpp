@@ -391,21 +391,22 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
 	init_func
 
     LOG_DEBUG("**** Starting ReadDappPubKey *****");
+	if (DappPubKey.isEmpty()) {
+		ByteDynArray resp;
+		readfile(0x1004, DappKey);
 
-	ByteDynArray resp;
-	readfile(0x1004, DappKey);
-
-	CASNParser parser;
-	parser.Parse(DappKey);
-    LOG_DEBUG("ReadDappPubKey - Parsing ok");
-	ByteArray module = parser.tags[0]->tags[0]->content;
-	while (module[0] == 0)
-		module = module.mid(1);
-	DappModule = module;
-	ByteArray pubKey = parser.tags[0]->tags[1]->content;
-	while (pubKey[0] == 0)
-		pubKey = pubKey.mid(1);
-	DappPubKey = pubKey;
+		CASNParser parser;
+		parser.Parse(DappKey);
+		LOG_DEBUG("ReadDappPubKey - Parsing ok");
+		ByteArray module = parser.tags[0]->tags[0]->content;
+		while (module[0] == 0)
+			module = module.mid(1);
+		DappModule = module;
+		ByteArray pubKey = parser.tags[0]->tags[1]->content;
+		while (pubKey[0] == 0)
+			pubKey = pubKey.mid(1);
+		DappPubKey = pubKey;
+	}
 
     LOG_DEBUG("ReadDappPubKey - Pub Key:");
     LOG_BUFFER(DappPubKey.data(), DappPubKey.size());

@@ -151,11 +151,65 @@ void CIEtemplateInitSession(void *pTemplateData){
 			cie->ias.SelectAID_IAS();
 			cie->ias.ReadPAN();
 			
-			ByteDynArray resp;
+			ByteDynArray IntAuth;
 			cie->ias.SelectAID_CIE();
-			cie->ias.ReadDappPubKey(resp);
+			cie->ias.ReadDappPubKey(IntAuth);
 			cie->ias.InitEncKey();
 			cie->ias.GetCertificate(certRaw, true);
+
+			std::map<uint8_t, ByteDynArray> hashSet;
+
+			ByteDynArray SOD;
+            cie->ias.ReadSOD(SOD);
+            uint8_t digest = cie->ias.GetSODDigestAlg(SOD);
+
+			ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
+			
+			ByteDynArray IdServizi;
+            cie->ias.ReadIdServizi(IdServizi);
+			ByteArray serviziData(IdServizi.left(12));
+
+			ByteDynArray IntAuthServizi;
+            cie->ias.ReadServiziPubKey(IntAuthServizi);
+            ByteArray intAuthServiziData(IntAuthServizi.left(GetASN1DataLenght(IntAuthServizi)));
+
+			cie->ias.SelectAID_IAS();
+            ByteDynArray DH;
+            cie->ias.ReadDH(DH);
+            ByteArray dhData(DH.left(GetASN1DataLenght(DH)));
+
+			ByteDynArray Serial;
+            cie->ias.ReadSerialeCIE(Serial);
+            ByteArray serialData = Serial.left(9);
+
+			ByteDynArray CertCIE;
+            ias.ReadCertCIE(CertCIE);
+            ByteArray certCIEData = CertCIE.left(GetASN1DataLenght(CertCIE));
+			
+			// SOD verification
+            if (digest == 1)
+            {
+                CSHA256 sha256;
+                hashSet[0xa1] = sha256.Digest(serviziData);
+                hashSet[0xa4] = sha256.Digest(intAuthData);
+                hashSet[0xa5] = sha256.Digest(intAuthServiziData);
+                hashSet[0x1b] = sha256.Digest(dhData);
+                hashSet[0xa2] = sha256.Digest(serialData);
+                hashSet[0xa3] = sha256.Digest(certCIEData);
+                cie->ias.VerificaSOD(SOD, hashSet);
+
+            }
+            else
+            {
+                CSHA512 sha512;
+                hashSet[0xa1] = sha512.Digest(serviziData);
+                hashSet[0xa4] = sha512.Digest(intAuthData);
+                hashSet[0xa5] = sha512.Digest(intAuthServiziData);
+                hashSet[0x1b] = sha512.Digest(dhData);
+                hashSet[0xa2] = sha512.Digest(serialData);
+                hashSet[0xa3] = sha512.Digest(certCIEData);
+                cie->ias.VerificaSODPSS(SOD, hashSet);
+            }
 		}
 
         
