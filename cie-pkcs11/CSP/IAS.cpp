@@ -391,22 +391,21 @@ void IAS::ReadDappPubKey(ByteDynArray &DappKey) {
 	init_func
 
     LOG_DEBUG("**** Starting ReadDappPubKey *****");
-	if (DappPubKey.isEmpty()) {
-		ByteDynArray resp;
-		readfile(0x1004, DappKey);
 
-		CASNParser parser;
-		parser.Parse(DappKey);
-		LOG_DEBUG("ReadDappPubKey - Parsing ok");
-		ByteArray module = parser.tags[0]->tags[0]->content;
-		while (module[0] == 0)
-			module = module.mid(1);
-		DappModule = module;
-		ByteArray pubKey = parser.tags[0]->tags[1]->content;
-		while (pubKey[0] == 0)
-			pubKey = pubKey.mid(1);
-		DappPubKey = pubKey;
-	}
+	ByteDynArray resp;
+	readfile(0x1004, DappKey);
+
+	CASNParser parser;
+	parser.Parse(DappKey);
+	LOG_DEBUG("ReadDappPubKey - Parsing ok");
+	ByteArray module = parser.tags[0]->tags[0]->content;
+	while (module[0] == 0)
+		module = module.mid(1);
+	DappModule = module;
+	ByteArray pubKey = parser.tags[0]->tags[1]->content;
+	while (pubKey[0] == 0)
+		pubKey = pubKey.mid(1);
+	DappPubKey = pubKey;
 
     LOG_DEBUG("ReadDappPubKey - Pub Key:");
     LOG_BUFFER(DappPubKey.data(), DappPubKey.size());
@@ -1498,10 +1497,9 @@ void IAS::VerificaSODPSS(ByteArray &SOD, std::map<uint8_t, ByteDynArray> &hashSe
         uint8_t num = ByteArrayToVar(dgNum.content, BYTE);
 
         if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-            throw logged_error(stdPrintf("Digest non trovato per il DG %02X", num));
-
-
-        if (hashSet[num] != dgHash.content)
+            //throw logged_error(stdPrintf("Digest non trovato per il DG %02X", num));
+			printf("%s", stdPrintf("Digest non trovato per il DG %02X", num));
+        else if (hashSet[num] != dgHash.content)
             throw logged_error(stdPrintf("VerificaSODPSS - Digest for DG %02X not found", num));
     }
 
@@ -1688,13 +1686,11 @@ void IAS::VerificaSOD(ByteArray &SOD, std::map<BYTE, ByteDynArray> &hashSet) {
 		uint8_t num = ByteArrayToVar(dgNum.content, BYTE);
 
 		if (hashSet.find(num) == hashSet.end() || hashSet[num].size() == 0)
-//            throw logged_error(stdPrintf("Digest non trovato per il DG %02X", num));
+			//throw logged_error(stdPrintf("Digest non trovato per il DG %02X", num));
             printf("%s", stdPrintf("Digest non trovato per il DG %02X", num).c_str());
-
-
-		if (hashSet[num] != dgHash.content)
-//            throw logged_error(stdPrintf("Digest non corrispondente per il DG %02X", num));
-                printf("%s", stdPrintf("Digest non corrispondente per il DG %02X", num).c_str());
+		else if (hashSet[num] != dgHash.content)
+			throw logged_error(stdPrintf("Digest non corrispondente per il DG %02X", num));
+            //printf("%s", stdPrintf("Digest non corrispondente per il DG %02X", num).c_str());
 	}
 
 	/*if (CSCA != null && CSCA.Count > 0)
