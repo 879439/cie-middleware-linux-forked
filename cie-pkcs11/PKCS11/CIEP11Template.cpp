@@ -160,13 +160,13 @@ void CIEtemplateInitSession(void *pTemplateData){
 			cie->ias.GetCertificate(certRaw, true);
 			ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
 
-			std::map<uint8_t, ByteDynArray> hashSet;
-
+			
 			ByteDynArray SOD;
             cie->ias.ReadSOD(SOD);
             uint8_t digest = cie->ias.GetSODDigestAlg(SOD);
-
+			
 			LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+			std::map<uint8_t, ByteDynArray> hashSet;
             if (digest == 1)
             {	
                 CSHA256 sha256;
@@ -413,6 +413,7 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType, ByteArray &Pin
             uint8_t digest = cie->ias.GetSODDigestAlg(SOD);
 
 			LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+			std::map<uint8_t, ByteDynArray> hashSet;
             if (digest == 1)
             {	
                 CSHA256 sha256;

@@ -473,9 +473,10 @@ DWORD CardAuthenticateEx(IAS*       ias,
 
 		ByteDynArray SOD;
         ias->ReadSOD(SOD);
-        uint8_t digest = cieias->GetSODDigestAlg(SOD);
+        uint8_t digest = ias->GetSODDigestAlg(SOD);
 
 		LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+        std::map<uint8_t, ByteDynArray> hashSet;
         if (digest == 1)
         {	
             CSHA256 sha256;
