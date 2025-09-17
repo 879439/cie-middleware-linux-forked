@@ -5,6 +5,8 @@
 #include "../Crypto/ASNParser.h"
 #include <stdio.h>
 #include "../Crypto/AES.h"
+#include "../Crypto/sha512.h"
+#include "../Crypto/sha256.h"
 #include "../PCSC/PCSC.h"
 #include "../Cryptopp/cryptlib.h"
 #include "../Cryptopp/asn.h"
@@ -156,6 +158,7 @@ void CIEtemplateInitSession(void *pTemplateData){
 			cie->ias.ReadDappPubKey(IntAuth);
 			cie->ias.InitEncKey();
 			cie->ias.GetCertificate(certRaw, true);
+			ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
 
 			std::map<uint8_t, ByteDynArray> hashSet;
 
@@ -163,51 +166,18 @@ void CIEtemplateInitSession(void *pTemplateData){
             cie->ias.ReadSOD(SOD);
             uint8_t digest = cie->ias.GetSODDigestAlg(SOD);
 
-			ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
-			
-			ByteDynArray IdServizi;
-            cie->ias.ReadIdServizi(IdServizi);
-			ByteArray serviziData(IdServizi.left(12));
-
-			ByteDynArray IntAuthServizi;
-            cie->ias.ReadServiziPubKey(IntAuthServizi);
-            ByteArray intAuthServiziData(IntAuthServizi.left(GetASN1DataLenght(IntAuthServizi)));
-
-			cie->ias.SelectAID_IAS();
-            ByteDynArray DH;
-            cie->ias.ReadDH(DH);
-            ByteArray dhData(DH.left(GetASN1DataLenght(DH)));
-
-			ByteDynArray Serial;
-            cie->ias.ReadSerialeCIE(Serial);
-            ByteArray serialData = Serial.left(9);
-
-			ByteDynArray CertCIE;
-            ias.ReadCertCIE(CertCIE);
-            ByteArray certCIEData = CertCIE.left(GetASN1DataLenght(CertCIE));
-			
-			// SOD verification
+			LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
             if (digest == 1)
-            {
+            {	
                 CSHA256 sha256;
-                hashSet[0xa1] = sha256.Digest(serviziData);
                 hashSet[0xa4] = sha256.Digest(intAuthData);
-                hashSet[0xa5] = sha256.Digest(intAuthServiziData);
-                hashSet[0x1b] = sha256.Digest(dhData);
-                hashSet[0xa2] = sha256.Digest(serialData);
-                hashSet[0xa3] = sha256.Digest(certCIEData);
                 cie->ias.VerificaSOD(SOD, hashSet);
 
             }
             else
             {
                 CSHA512 sha512;
-                hashSet[0xa1] = sha512.Digest(serviziData);
                 hashSet[0xa4] = sha512.Digest(intAuthData);
-                hashSet[0xa5] = sha512.Digest(intAuthServiziData);
-                hashSet[0x1b] = sha512.Digest(dhData);
-                hashSet[0xa2] = sha512.Digest(serialData);
-                hashSet[0xa3] = sha512.Digest(certCIEData);
                 cie->ias.VerificaSODPSS(SOD, hashSet);
             }
 		}
@@ -434,8 +404,28 @@ void CIEtemplateLogin(void *pTemplateData, CK_USER_TYPE userType, ByteArray &Pin
 		cie->ias.InitDHParam();
 
 		if (cie->ias.DappPubKey.isEmpty()) {
-			ByteDynArray DappKey;			
-			cie->ias.ReadDappPubKey(DappKey);
+			ByteDynArray IntAuth;			
+			cie->ias.ReadDappPubKey(IntAuth);
+			ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
+
+			ByteDynArray SOD;
+            cie->ias.ReadSOD(SOD);
+            uint8_t digest = cie->ias.GetSODDigestAlg(SOD);
+
+			LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+            if (digest == 1)
+            {	
+                CSHA256 sha256;
+                hashSet[0xa4] = sha256.Digest(intAuthData);
+                cie->ias.VerificaSOD(SOD, hashSet);
+
+            }
+            else
+            {
+                CSHA512 sha512;
+                hashSet[0xa4] = sha512.Digest(intAuthData);
+                cie->ias.VerificaSODPSS(SOD, hashSet);
+            }
 		}
 
 		cie->ias.InitExtAuthKeyParam();
