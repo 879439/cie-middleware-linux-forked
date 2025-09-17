@@ -264,6 +264,27 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
             free(ATR);
             ATR = NULL;
 
+            LOG_INFO("AbbinaCIE - Verifying SOD before authentication, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+            if (digest == 1)
+            {
+                CSHA256 sha256;
+                hashSet[0xa1] = sha256.Digest(serviziData);
+                hashSet[0xa4] = sha256.Digest(intAuthData);
+                hashSet[0xa5] = sha256.Digest(intAuthServiziData);
+                hashSet[0x1b] = sha256.Digest(dhData);
+                ias.VerificaSOD(SOD, hashSet);
+
+            }
+            else
+            {
+                CSHA512 sha512;
+                hashSet[0xa1] = sha512.Digest(serviziData);
+                hashSet[0xa4] = sha512.Digest(intAuthData);
+                hashSet[0xa5] = sha512.Digest(intAuthServiziData);
+                hashSet[0x1b] = sha512.Digest(dhData);
+                ias.VerificaSODPSS(SOD, hashSet);
+            }
+
             DWORD rs = CardAuthenticateEx(&ias, ROLE_USER, FULL_PIN, (BYTE*)szPIN, (DWORD)strnlen(szPIN, sizeof(szPIN)), nullptr, 0, progressCallBack, attempts);
             if (rs == SCARD_W_WRONG_CHV)
             {
@@ -306,10 +327,6 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
             if (digest == 1)
             {
                 CSHA256 sha256;
-                hashSet[0xa1] = sha256.Digest(serviziData);
-                hashSet[0xa4] = sha256.Digest(intAuthData);
-                hashSet[0xa5] = sha256.Digest(intAuthServiziData);
-                hashSet[0x1b] = sha256.Digest(dhData);
                 hashSet[0xa2] = sha256.Digest(serialData);
                 hashSet[0xa3] = sha256.Digest(certCIEData);
                 ias.VerificaSOD(SOD, hashSet);
@@ -318,10 +335,6 @@ CK_RV CK_ENTRY AbilitaCIE(const char*  szPAN, const char*  szPIN, int* attempts,
             else
             {
                 CSHA512 sha512;
-                hashSet[0xa1] = sha512.Digest(serviziData);
-                hashSet[0xa4] = sha512.Digest(intAuthData);
-                hashSet[0xa5] = sha512.Digest(intAuthServiziData);
-                hashSet[0x1b] = sha512.Digest(dhData);
                 hashSet[0xa2] = sha512.Digest(serialData);
                 hashSet[0xa3] = sha512.Digest(certCIEData);
                 ias.VerificaSODPSS(SOD, hashSet);
@@ -453,9 +466,29 @@ DWORD CardAuthenticateEx(IAS*       ias,
     
 
     progressCallBack(24, "read DappPubKey");
+    if (ias->DappPubKey.isEmpty()) {
+		ByteDynArray IntAuth;			
+		ias->ReadDappPubKey(IntAuth);
+		ByteArray intAuthData(IntAuth.left(GetASN1DataLenght(IntAuth)));
 
-    ByteDynArray dappData;
-    ias->ReadDappPubKey(dappData);
+		ByteDynArray SOD;
+        ias->ReadSOD(SOD);
+        uint8_t digest = cieias->GetSODDigestAlg(SOD);
+
+		LOG_INFO("AbbinaCIE - Verifying SOD, digest algorithm: %s", (digest == 1) ? "RSA/SHA256" : "RSA-PSS/SHA512");
+        if (digest == 1)
+        {	
+            CSHA256 sha256;
+            hashSet[0xa4] = sha256.Digest(intAuthData);
+            ias->VerificaSOD(SOD, hashSet);
+        }
+        else
+        {
+            CSHA512 sha512;
+            hashSet[0xa4] = sha512.Digest(intAuthData);
+            ias->VerificaSODPSS(SOD, hashSet);
+        }
+    }
     
     LOG_INFO("CardAuthenticateEx - Performing DH Exchange");
 
