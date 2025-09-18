@@ -1,7 +1,10 @@
 // DigitSign.cpp : Defines the exported functions for the DLL application.
 //
 
-
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/pem.h>
+#include <ctime>
 #include <stdlib.h>
 #include "disigonsdk.h"
 #include "SignatureGenerator.h"
@@ -89,7 +92,322 @@ int g_nVerifyProxyPort = -1;
 UUCProperties g_mapOIDProps;
 
 IAS* ias = NULL;
+static const char kCIE_CA_BUNDLE_PEM[] = R"(-----BEGIN CERTIFICATE-----
+MIIG4DCCBMigAwIBAgIIRmop7bWMajUwDQYJKoZIhvcNAQELBQAwgasxQjBABgNV
+BAMMOU5hdGlvbmFsIHJvb3QgQ0EgZm9yIHRoZSBJdGFsaWFuIEVsZWN0cm9uaWMg
+SWRlbnRpdHkgQ2FyZDE3MDUGA1UECwwuRGlyZXouIENlbnRyLiBwZXIgaSBTZXJ2
+aXppIERlbW9ncmFmaWNpIC0gQ05TRDEfMB0GA1UECgwWTWluaXN0ZXJvIGRlbGwn
+SW50ZXJubzELMAkGA1UEBhMCSVQwHhcNMTYwNjA2MTQzNzI0WhcNMzYwNjA2MTQz
+NzI0WjCBqzFCMEAGA1UEAww5TmF0aW9uYWwgcm9vdCBDQSBmb3IgdGhlIEl0YWxp
+YW4gRWxlY3Ryb25pYyBJZGVudGl0eSBDYXJkMTcwNQYDVQQLDC5EaXJlei4gQ2Vu
+dHIuIHBlciBpIFNlcnZpemkgRGVtb2dyYWZpY2kgLSBDTlNEMR8wHQYDVQQKDBZN
+aW5pc3Rlcm8gZGVsbCdJbnRlcm5vMQswCQYDVQQGEwJJVDCCAiIwDQYJKoZIhvcN
+AQEBBQADggIPADCCAgoCggIBAMKQoMWIoz5V+cTvVu+rAU4GXsrhCHBGSiPluVwE
+DwrLa4VmUYcBpKV8bJMmSelbjE8TGtCvIdb3HmrK72ts/9cKIJItgMLEH4DWIO72
+F1EW4oYFZ7V4QalK3x5AIk6YCIw+PLYiv+i/C/7z+OwMeOyaPDayPK7bwwBloJHS
+/IwHy1eQLqZ58zyCNyjBAmtWQgqP6rLTFG44hRk6jCsHSBuMSe36qs21ZaA3qrui
+tRVL2BMIe1+VnudwI+XWhrTaoa5UuZJygE52w7xbGmpv+Q6TapjVPc7s/l7aLBAv
+lo/KW3zDWZ8Joj0qftAFWCRI+Qbuw8GR6lvkp7vm85ymUd9nS/Izo0iEsDyppED/
+CuG0+n+y7CfGlZ6PqKM0WOeG856oH/BbuMrhPZ68w2S/0tgLFWcOLwFkBJubVTFW
+5sWrYmgpxtdjj+8fpFmxstPXOA3DOt6NTEUOeT2xFYn323FpsQm+LV6tTzUcl/T2
+ud9dw0ede5ucxI6caLR3MvaChqErUyZF0F09x3sKkedP8tHNutsvEjtgnkhTlypG
+Fh+clAPFPJlwTFkp9VB2ULa7giOq8+iEqj7LApB1tp/vgR1qAxTNhWTJpegdrfjF
+vLO+ApY0a6NNxKjXe19pPx32YWuGcGOp8At1KRTvBrW1qWlrUn6j99SDcTHjEwmV
+54nHAgMBAAGjggEEMIIBADAdBgNVHQ4EFgQUR8qRudhBHPfA4cUWUD454S+L8jUw
+DwYDVR0TAQH/BAUwAwEB/zAfBgNVHSMEGDAWgBRHypG52EEc98DhxRZQPjnhL4vy
+NTBeBgNVHSAEVzBVMFMGBCtMLwEwSzBJBggrBgEFBQcCARY9aHR0cDovL3d3dy5j
+YXJ0YWlkZW50aXRhLmludGVybm8uZ292Lml0L3BvbGljeS9yb290Y2FfY3BzLnBk
+ZjA9BgNVHR8ENjA0MDKgMKAuhixodHRwOi8vbGRhcC5jaWUuaW50ZXJuby5nb3Yu
+aXQvY2llcm9vdGNhLmNybDAOBgNVHQ8BAf8EBAMCAYYwDQYJKoZIhvcNAQELBQAD
+ggIBAHzFm/7B4+D1bJWUM38mL2UD6SNr11RVm9ohHPx586rb9tDiea7wgTWBBLyZ
+WpdbDWQfSU+13kSsMUvZH60Fg/A95WKrIGo29fjFdHkJrrJm0Tc9CcMLLULWyQBy
+oJAv/01NYykGzdgyAJbdkvWTihhlZBpFZ2GMQT4g099Xd6iWXiEaKcDDMh9o8PU0
+fZy0L274HE6ql5P5xdiqfv3dyiEM+eZ5OEMKOkkJPtlXX/H20g0AkUZpFlfqC6mh
+uEad28YH3OlTJyl7sEYNPqjEp9UvcdD9XpAVr/GxGHf96H4Ozqu9ZQFCG6E5aMMY
+XOxhXHNnRpnwkao1edaomxJTDtcDSdFE7Bp0fKRUpSVUpLbYcAda0/kgl7s/bZQl
+xZKNhSqOZuQA91LKYB3CwXEHblJP9j45Em86J0rwfpB28Cb9ePNCkHaoSkJ25PtK
+zNgKtikkGZCMmYpdiyQELuoBZHtxJ+Jo3tmc6Wy9WF9FzPYyKrC1d+NJdF8477zC
+pXk8l5z5zDoFt5H30Xdz9x+toehpemDABBvbNd+jSfwpay6O7qr8cnr7O+9uBrzK
+Yv5yjgxBQ7KVF367aEXYdplSzJzlj+dl/sqHzyeTcw7CaMptYy5XW9JbmkvaxWX2
+vK8/rpnLv9Y9hX1KmmFMAK3PXgTw8Bym3+nM8Qc76Sx/LOHL
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIG7jCCBNagAwIBAgIIRs2LVrWtjRswDQYJKoZIhvcNAQELBQAwgasxQjBABgNV
+BAMMOU5hdGlvbmFsIHJvb3QgQ0EgZm9yIHRoZSBJdGFsaWFuIEVsZWN0cm9uaWMg
+SWRlbnRpdHkgQ2FyZDE3MDUGA1UECwwuRGlyZXouIENlbnRyLiBwZXIgaSBTZXJ2
+aXppIERlbW9ncmFmaWNpIC0gQ05TRDEfMB0GA1UECgwWTWluaXN0ZXJvIGRlbGwn
+SW50ZXJubzELMAkGA1UEBhMCSVQwHhcNMTYwNjA2MTYxNjQxWhcNMzEwNjAzMTYx
+NjQxWjCBsjFJMEcGA1UEAwxASXNzdWluZyBzdWIgQ0EgZm9yIHRoZSBJdGFsaWFu
+IEVsZWN0cm9uaWMgSWRlbnRpdHkgQ2FyZCAtIFNVQkNBMTE3MDUGA1UECwwuRGly
+ZXouIENlbnRyLiBwZXIgaSBTZXJ2aXppIERlbW9ncmFmaWNpIC0gQ05TRDEfMB0G
+A1UECgwWTWluaXN0ZXJvIGRlbGwnSW50ZXJubzELMAkGA1UEBhMCSVQwggIiMA0G
+CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC3Sk0E2bwMzrp2oRZ52be8Z37f8osu
+LwKHt4PTysD+lHyGi3/P37omXUzZewZ/SuSkDY0LzgloMjqiZdfVvobQ/rN+ICwg
+cfB6Kf2fFPqN1mPTeJLI537kemkN/qwHIZO+HOlmklY+nJ/HrlVQJ6dxrfd8hWLp
+XR4L2yTtqhB2bMrZGN+EtsiML8DetRM/i4/AV5UYTOrWEbexnKgwwATu9TgDSk+f
+lqwB6R24islNbfDlnmm+XXaaba3Jflajk5vAt8cYyVkYx6QCwVDbifHWEG52z7GW
+XD/TkDIV2FPm6qTCQdBPfEbmXfTpIcu8sN+gIQMlb/fbcsqi9liw26pxO4RlvO7K
+74GbcTgUY4q7iG+SzNkXXLXRDlLsjloA+y3j/TPM0RwBSsnYghDrcxyq8KXNuKk6
+JXtv5N68Qttr+SVYhE3EvMUeUJqgp1s1siDKswcuIasl07HlcgYZVC6joEg9xlEX
+IcCMFibyNIjrm+oybA1srZ9lqf+14Z9ERGacJJTGy3Mkl7UxWNBeyK3DT15j8pZY
+wVIvJBfNX8x+r59huVQCOqxwvCe2AHIAqPkuLSjqVFFek8q6l2az3mcY2mgE8Avu
+Du6rilJEq2ZU3sGBM3ep7yuKZErwlU0sXlqxMvoDe44/rU8Puan+4/OI9+VDaHi4
+P6RxTTcU4DkQfwIDAQABo4IBCzCCAQcwHQYDVR0OBBYEFOJDidPiBHX9JjL5SkxB
+3NmJPuTBMBIGA1UdEwEB/wQIMAYBAf8CAQAwHwYDVR0jBBgwFoAUR8qRudhBHPfA
+4cUWUD454S+L8jUwYgYDVR0gBFswWTBXBgQrTC8CME8wTQYIKwYBBQUHAgEWQWh0
+dHA6Ly93d3cuY2FydGFpZGVudGl0YS5pbnRlcm5vLmdvdi5pdC9wb2xpY3kvc3Vi
+Y2FfYXV0aF9jcHMucGRmMD0GA1UdHwQ2MDQwMqAwoC6GLGh0dHA6Ly9sZGFwLmNp
+ZS5pbnRlcm5vLmdvdi5pdC9jaWVzdWJjYTEuY3JsMA4GA1UdDwEB/wQEAwIBhjAN
+BgkqhkiG9w0BAQsFAAOCAgEAD+TJp+WNJQFfyCzlmPKNXsUTHiARHgLp5u08Rm5j
+DO1ffSp3YAWQ0u4BIy5HzCRxnQReJcDe3sR+dxnAh+6DW69pu5zxJkBNhgw+J7mG
+izyQ7moHxMZeYGMgKSGzHOQp84OA7vb2km4J8U90iJIEbfWo1o0qrFoFlyW/Xsts
+wevyy7/G6uGccomwuJS/oklw1Jx8jIxAD+4KPfhg7MEO1Ae8CJ2i4bQdK+oRpCMH
+Mxog23C9Ry3AqNRyQDn4HQ7gk2MgxlOjxfdrYE6u1YtV2mliBoOVmI6U10BzsqK5
+mKbj+mNVG0wTTNlIbeqqQsnGqA2D2XA/l0p8gGG0dnjK+Y1bishGX9nI6c868r24
+WYu1Xjw2XgjFeJzyL78iOVDxyewRjpgZhEuIo/DPyW/SkMH4JkvABa/CmNIe3Eua
+E1/SkXMePWG73ZOmh4cytQ8yyMNviUqU274EQMhtWx3XFvfDB0eu+E9u3S5dqVaa
+nArroE60WFp/Bl2dNDHJgis3CewlZLbCRxc4rH0g8Ipfqe0Wte9uvhLZhColvbZ/
+SEXCp2yUzFp3UYmsmRxyVlcFGwDF4/6ZXXhsrWTH/0jV8Or9zV598Tv7Lo5gz7IA
++GI2BpZd96tz2+ItNxLdRl0ZVavpJYeL/6dQ/OyHUnGJrSJUq/3BKLtOgMTmEOpX
+RUE=
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIG8DCCBNigAwIBAgIIbidwj1LWzEAwDQYJKoZIhvcNAQELBQAwgasxQjBABgNV
+BAMMOU5hdGlvbmFsIHJvb3QgQ0EgZm9yIHRoZSBJdGFsaWFuIEVsZWN0cm9uaWMg
+SWRlbnRpdHkgQ2FyZDE3MDUGA1UECwwuRGlyZXouIENlbnRyLiBwZXIgaSBTZXJ2
+aXppIERlbW9ncmFmaWNpIC0gQ05TRDEfMB0GA1UECgwWTWluaXN0ZXJvIGRlbGwn
+SW50ZXJubzELMAkGA1UEBhMCSVQwHhcNMjAwNTI1MDYxNDMyWhcNMzUwNTIyMDYx
+NDMyWjCBtDFLMEkGA1UEAwxCSXNzdWluZyBzdWIgQ0EgZm9yIHRoZSBJdGFsaWFu
+IEVsZWN0cm9uaWMgSWRlbnRpdHkgQ2FyZCAtIFNVQkNBMDAyMTcwNQYDVQQLDC5E
+aXJlei4gQ2VudHIuIHBlciBpIFNlcnZpemkgRGVtb2dyYWZpY2kgLSBDTlNEMR8w
+HQYDVQQKDBZNaW5pc3Rlcm8gZGVsbCdJbnRlcm5vMQswCQYDVQQGEwJJVDCCAiIw
+DQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAJl0P3lxsxXbmvW/i6b4HOrzEzSw
+mkmjhWcCgm8zykHw5Zm9yA8ex3fhsPTQaw/to1T2183kapcg/lnXnR2Rx5v3VvvR
+JODs6kMzWIQ/elJjguitlsPrjmjgsIXYBI+Re8ITHP0J783jHhWM7kbhJ8XAjk39
+mhX/NFx6mLgOBqdep/QAkldV8s2EApodclvdB42QfrkPd3yWZmo7jP5Jp5QJ5Lms
+ThWXCmXKCPcAiXY1Z/NFWK32DmjrabBRJm2YyvOsXQVjiyjYjowwVIG0UeF0ZGBC
+F0Wd7jjIghyivTi/hMWXOy++XsfmgCS5GD6ylnsSP+vJXmOFS6aINkTpUlfYHw35
+VRU9RFIt9qunKaLJA+BgvHZxGLcfhe6mveLalunCH7KLip0oVDO5qw2/ct5kX/Pl
+cDlGI97eWWI2EsHmaHeHns++n1RuRRpmHlF5cb92dF3ciFKgmkVKK3xHlG+j0++A
+usJMKOSJZl2n8vL2YzeCWWcbidZeze/q5Mq0H+snRTKq9dnjfwln+81Fvh9GjtWv
+iDgJ/Trd6CRrMEUhbCi3drpVvYTT2na9HVikLD44CurZgcOYCaPlf47hjKQwNT0d
+BtvZdF6ThwJz9HFOTMHUTiaXD4vEC6kLRnAA1nL7ticLN7MfRECMK+/8c8hgHUe5
+RB1DXiYfTus2WOGzAgMBAAGjggELMIIBBzAdBgNVHQ4EFgQU+S7pCGSforgrqDKV
+QXPpfZ0MFRgwEgYDVR0TAQH/BAgwBgEB/wIBADAfBgNVHSMEGDAWgBRHypG52EEc
+98DhxRZQPjnhL4vyNTBiBgNVHSAEWzBZMFcGBCtMLwIwTzBNBggrBgEFBQcCARZB
+aHR0cDovL3d3dy5jYXJ0YWlkZW50aXRhLmludGVybm8uZ292Lml0L3BvbGljeS9z
+dWJjYV9hdXRoX2Nwcy5wZGYwPQYDVR0fBDYwNDAyoDCgLoYsaHR0cDovL2xkYXAu
+Y2llLmludGVybm8uZ292Lml0L2NpZXJvb3RjYS5jcmwwDgYDVR0PAQH/BAQDAgGG
+MA0GCSqGSIb3DQEBCwUAA4ICAQBVmLny00jZq9Zop2SfljcgUtZ2WAZVUcI1tsXb
+NRKsarhgqg1G3HKv9jufqxYoL+gfAOa5jRoPmqvWGuSBzM9fSMu8bURDdSljoTos
+4OR+8hgEYz4NoDTHqyXxXgwGVcGRSz8jppFUQOFur9yScx+mGY1XPGiO3FBDwROu
+2jhIT3eFBbTq0369lP2GI+qAgIkeoggjwR1u1WNasoCDeLViDOrWvSOB3/FPQIhG
+VWhsJnIGq8zJQGfuo/P8ae33CleB69aZIsR3TuPQ17tWg5zG6Zbq7f/9p02pTm6E
+rj0TLtPJqMoPLloW/LmO5EfB9BcTYT187vogjZ3M/ulrSM/Zm4bb3zHgPBNRY0Nl
+27Mw7E9swaCXeIJySLGv/aS4o4cNqkFDJH5btrDrShQBGD9ANi77LlSlEQ4FmzY1
+X4UZk5enWQ1A/uOylLrtfG3puXcekdcxTneCdkbAr+yo83Pzba/ZX7kec/tmnoL8
+QfPFAbrQx2wnxK9AmxQmvxwAm9GmkRIe8TFgAWODIPiA/rRMVI2TvI37xGWWFZNO
+xkgPY5uSajZuOArTrjDUGHqalKQSksylIZ65i4sUXsHGNyH0OFt7ZYAfC0YIl+f6
+2yF2MwtqVv7bZB/GF7vb1JZGj9hqTUGVRjz0MFruMBsMhhAUUykCTegIq5C/MFcC
+aJQEPQ==
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIG8DCCBNigAwIBAgIIJJZNjbfc1rcwDQYJKoZIhvcNAQELBQAwgasxQjBABgNV
+BAMMOU5hdGlvbmFsIHJvb3QgQ0EgZm9yIHRoZSBJdGFsaWFuIEVsZWN0cm9uaWMg
+SWRlbnRpdHkgQ2FyZDE3MDUGA1UECwwuRGlyZXouIENlbnRyLiBwZXIgaSBTZXJ2
+aXppIERlbW9ncmFmaWNpIC0gQ05TRDEfMB0GA1UECgwWTWluaXN0ZXJvIGRlbGwn
+SW50ZXJubzELMAkGA1UEBhMCSVQwHhcNMjQwNTE2MTQwMzM3WhcNMzkwNTEzMTQw
+MzM3WjCBtDFLMEkGA1UEAwxCSXNzdWluZyBzdWIgQ0EgZm9yIHRoZSBJdGFsaWFu
+IEVsZWN0cm9uaWMgSWRlbnRpdHkgQ2FyZCAtIFNVQkNBMDAzMTcwNQYDVQQLDC5E
+aXJlei4gQ2VudHIuIHBlciBpIFNlcnZpemkgRGVtb2dyYWZpY2kgLSBDTlNEMR8w
+HQYDVQQKDBZNaW5pc3Rlcm8gZGVsbCdJbnRlcm5vMQswCQYDVQQGEwJJVDCCAiIw
+DQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAM+DgWkGOnWDMPtesNeqhW62p2ch
+jnx181XY1iJ88rYVQj9ptLGFibURGbAFaSJ1uCniSxrMPByliDkadHkxMjTr+9te
+Zu3kPnOoV2pgR78Tn8RLG8BnruX4riuaP1vyKKVFEoO7Td7a075v6i0ipYyZtZ0t
+wrtpAD2ZQbrTdUCy3HuWdn0CD7q3YDGskIYfIbFI1R3zgpxM4wSbCO5bqSxiyk2i
+MDbm/cQ/b0eX8shXdNhNPrN/imR4w1rZwzSp0JNH1Madf3D9YdAUDUTCQG405lVL
+4ha0pUlG+g0Ig0BHDLxBAO6iZ7CZY+YcgV945FqosiBrH1Y8PFmN1VBlFKn351hZ
+OAfgnLj1Y6gGgLz2+WUNWZpGDfdPhODWhmffqzeTGihuOgIzfQG3wL1uQ6aeTqQk
+cDECs/Tll6lQW6WVqUdFGw8h4hHKHdAizTDi+/vYlGYUceuNCYM+woE+Omvwo8+1
+BcqFpVO0YAxlmzVl/HN8kRvoaiwIy6XH5GON0I8aPSFsCqXl0tou8llpdueI6R33
+COn6r7O3VjQNXJEpUesHpi9vTuIPaP9W4OCRO9wjrIot6QtmQKTpoN0tpdDsMLdQ
+5//zdRG8D4qz3dH0kFEqr5li1rXOUnK79SAygYkdLuD7PRFUyUkVuAbMrn/snLAG
+LaUpx0FtcpzQHQojAgMBAAGjggELMIIBBzASBgNVHRMBAf8ECDAGAQH/AgEAMB8G
+A1UdIwQYMBaAFEdvJRrD1fP+XjSTEp/YgRXcUgxPMGIGA1UdIARbMFkwVwYEK0wv
+AjBPME0GCCsGAQUFBwIBFkFodHRwOi8vd3d3LmNhcnRhaWRlbnRpdGEuaW50ZXJu
+by5nb3YuaXQvcG9saWN5L3N1YmNhX2F1dGhfY3BzLnBkZjA9BgNVHR8ENjA0MDKg
+MKAuhixodHRwOi8vbGRhcC5jaWUuaW50ZXJuby5nb3YuaXQvY2llcm9vdGNhLmNy
+bDAdBgNVHQ4EFgQU+LbUqPVMY/CaGMSqUumS65tDx+EwDgYDVR0PAQH/BAQDAgGG
+MA0GCSqGSIb3DQEBCwUAA4ICAQBsWaBdJkl1YU217X4HChaW3PYV0ocii+MFkTwx
+DmAKqGXTEWbPZSz00NyHDORMKY/cx0s3eNZ14caed/KBbdgkEfl3Wymq9mWSWnjI
+bB39d4L1XalZWOquA6iQMrM3+9Aa/cOwj63rxYeDHjDRwW5OETSk47WTdJoMU3c2
+1kbXUSlIX3VgW+8pX5KDEMwQobuIyS2TUpc10DV2MbDDZFeaUePVXD+xuBkCJ4LR
+6yXsWdad8NPRX0SK/dtOB0DSdPM7HpNMeurNF6KdxHK3w5rbt0n8n129NmPT4lnx
+Aw1U0wZULU29gu9WhadlwbSLxvXSfsh4dLLwyLL4PwjBgIYYGkLt9n/JQD5XF2BM
+94LOpdv5VBa6nhaCralW9npc1djK02CgINROFR+rwFhaWPptYZmnMVX0Pw9Qe8X+
+Nrml576sJydJCh+Obc/auwbpjW9oTibvdqTeYAk7DGyitOSI3GZSQEccfaWxxcL2
+t6hYmMXswMLrG8THL++8D7fBo01kV5V2sdhJ2NdFeKvylGfQBU6kmAGtEkq5EElz
+3UhfArjj7d31FBPM6TKEmmMi5vJJ1IqyjxIHfHtRnRFjQadPxjf2Zdo3nsgCvL/5
+HjcTFIj2d6ZJIrUMBLX/q/aQRsaEZciEWUDZV9LCfnmEmgPd3YEr5Lqqxt+9Ej7R
+t+VL1w==
+-----END CERTIFICATE-----
+)";
 
+static int load_pem_into_store(X509_STORE* store, const char* pem, size_t len) {
+    
+    if (!pem || !len) return 0;
+    BIO* bio = BIO_new_mem_buf(pem, (int)len);
+    if (!bio) return 0;
+    int added = 0;
+    for (;;) {
+        X509* c = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+        if (!c) break;
+        char subj[512]={0};
+        X509_NAME_oneline(X509_get_subject_name(c), subj, sizeof subj);
+        
+        if (X509_STORE_add_cert(store, c) == 1) added++;
+        X509_free(c);
+    }
+    BIO_free(bio);
+    
+    return added;
+}
+
+static X509_STORE* build_store_with_fallback(const char* ca_file,
+                                             const char* ca_path,
+                                             const char* extra_ca_pem,
+                                             bool cie_only /* NEW: forza CIE-only */)
+{
+    
+
+    X509_STORE* store = X509_STORE_new();
+    if (!store) return nullptr;
+
+    int total_added = 0;
+    bool system_ok = false;
+
+    // 1) Se NON è CIE-only, prova (eventualmente) i percorsi passati o quelli di sistema
+    if (!cie_only) {
+        if (ca_file || ca_path) {
+            system_ok = (X509_STORE_load_locations(store,
+                           ca_file ? ca_file : nullptr,
+                      ca_path ? ca_path : nullptr) == 1);
+        }
+        if (!system_ok) {
+            system_ok = (X509_STORE_set_default_paths(store) == 1);
+        }
+    }
+
+    // 2) Carica SEMPRE gli eventuali PEM passati in memoria
+    if (extra_ca_pem && extra_ca_pem[0]) {
+        int n = load_pem_into_store(store, extra_ca_pem, (int)strlen(extra_ca_pem));
+        total_added += n;
+    }
+
+    // 3) Carica SEMPRE il bundle CIE embedded (Root + SUBCA1 + SUBCA002 + SUBCA003)
+    {
+        int n = load_pem_into_store(store, kCIE_CA_BUNDLE_PEM, (int)strlen(kCIE_CA_BUNDLE_PEM));
+        total_added += n;
+    }
+
+    // 4) Se siamo in CIE-only, vogliamo almeno 1 CA dal bundle
+    if (cie_only && total_added <= 0) {
+        LOG_ERR((0, "chain", "CIE-only store is empty: bundle non caricato"));
+        X509_STORE_free(store);
+        return nullptr;
+    }
+
+    // 5) Se NON siamo in CIE-only e system_ok==false e non abbiamo caricato nulla -> errore
+    if (!cie_only && !system_ok && total_added <= 0) {
+        LOG_ERR((0, "chain", "store vuoto (no system CA e nessun PEM)"));
+        X509_STORE_free(store);
+        return nullptr;
+    }
+
+    
+    return store;
+}
+
+
+// s: "YYMMDDhhmmssZ" o "YYYYMMDDhhmmssZ" -> time_t (best effort, UTC)
+static bool parse_asn1_like_utc(const char* s, time_t& out) {
+    if (!s || !*s) return false;
+    std::string str(s);
+    if (!str.empty() && str.back() == 'Z') str.pop_back();
+    struct tm t{}; t.tm_isdst = -1;
+
+    if (str.size() == 12) { // YYMMDDhhmmss
+        int YY = std::stoi(str.substr(0,2));
+        int year = (YY >= 50 ? 1900+YY : 2000+YY);
+        t.tm_year = year - 1900;
+        t.tm_mon  = std::stoi(str.substr(2,2)) - 1;
+        t.tm_mday = std::stoi(str.substr(4,2));
+        t.tm_hour = std::stoi(str.substr(6,2));
+        t.tm_min  = std::stoi(str.substr(8,2));
+        t.tm_sec  = std::stoi(str.substr(10,2));
+    } else if (str.size() == 14) { // YYYYMMDDhhmmss
+        t.tm_year = std::stoi(str.substr(0,4)) - 1900;
+        t.tm_mon  = std::stoi(str.substr(4,2)) - 1;
+        t.tm_mday = std::stoi(str.substr(6,2));
+        t.tm_hour = std::stoi(str.substr(8,2));
+        t.tm_min  = std::stoi(str.substr(10,2));
+        t.tm_sec  = std::stoi(str.substr(12,2));
+    } else return false;
+
+#if defined(_BSD_SOURCE) || defined(_GNU_SOURCE)
+    out = timegm(&t);
+#else
+    time_t local = mktime(&t);
+    struct tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &local);
+#else
+    gmtime_r(&local, &utc);
+#endif
+    out = local + difftime(mktime(&t), mktime(&utc));
+#endif
+    return out != (time_t)-1;
+}
+
+// API da usare in verify_pdf: restituisce 1=OK, 0=KO
+int verify_chain_from_der_at_time(const unsigned char* cert_der, long cert_len,
+                                  const char* ca_file,
+                                  const char* ca_path,
+                                  const char* extra_ca_pem,
+                                  const char* verify_time_asn1) {
+    const unsigned char* p = cert_der;
+    X509* leaf = d2i_X509(nullptr, &p, cert_len);
+    if (!leaf) return 0;
+
+    X509_STORE* store = build_store_with_fallback(ca_file, ca_path, extra_ca_pem,true);
+    if (!store) { X509_free(leaf); return 0; }
+
+    X509_STORE_CTX* ctx = X509_STORE_CTX_new();
+    if (!ctx) { X509_STORE_free(store); X509_free(leaf); return 0; }
+
+    if (X509_STORE_CTX_init(ctx, store, leaf, nullptr) != 1) {
+        X509_STORE_CTX_free(ctx); X509_STORE_free(store); X509_free(leaf);
+        return 0;
+    }
+
+    if (verify_time_asn1 && verify_time_asn1[0]) {
+        time_t tt{};
+        if (parse_asn1_like_utc(verify_time_asn1, tt)) {
+            X509_VERIFY_PARAM_set_time(X509_STORE_CTX_get0_param(ctx), tt);
+        }
+    }
+    // Se vuoi forzare uno scopo: X509_VERIFY_PARAM_set_purpose(...)
+
+    int ok = X509_verify_cert(ctx);
+    if (!ok) {
+        int err = X509_STORE_CTX_get_error(ctx);
+    } else {
+    }
+    X509_STORE_CTX_free(ctx);
+    X509_STORE_free(store);
+    X509_free(leaf);
+    return ok == 1 ? 1 : 0;
+}
 int get_file_type(char* szFileName);
 long verifyTST(CTimeStampToken& tst, TS_INFO* pTSInfo, BOOL bVerifyCRL);
 
@@ -1678,7 +1996,58 @@ long verify_signed_document(int index, DISIGON_VERIFY_CONTEXT* pContext, CSigned
         pSI->nCertLen = certificate.getLength();
         pSI->pCertificate = new BYTE[pSI->nCertLen];
         memcpy(pSI->pCertificate, certificate.getContent(), pSI->nCertLen);
+        // Se hai percorsi CA nel contesto, mettili qui (altrimenti lascia nullptr)
+        
+        const char* ca_file = nullptr;   // es: pContext->szCAFile;
+        const char* ca_path = nullptr;   // es: pContext->szCAPath;
+        const char* extra_pem = nullptr; // es: pContext->pExtraCABundlePEM;
 
+        // 1) Tempo di verifica: usa la signingTime se presente, altrimenti "adesso"
+        const char* verify_time = (pSI->szSigningTime[0] ? pSI->szSigningTime : nullptr);
+
+        int chain_ok = verify_chain_from_der_at_time(
+            certificate.getContent(),
+            certificate.getLength(),
+            ca_file, ca_path, extra_pem,
+            verify_time
+        );
+
+        if (chain_ok) {
+            pSI->bitmask |= VERIFIED_CERT_CHAIN;
+        } else {
+            pSI->bitmask &= ~VERIFIED_CERT_CHAIN;
+            LOG_ERR((0, "verify_pdf", "Certificate chain: FAIL (signer %d)", i));
+        }
+
+        // 2) VALIDITY esplicita (indipendente dal pdfVerifier)
+        //    Se verify_time==nullptr, confrontiamo con l'ora corrente.
+        //    Usiamo OpenSSL per confrontare notBefore/notAfter con un time_t scelto.
+        {
+            // Costruisci X509 per leggere le date
+            const unsigned char* p = certificate.getContent();
+            X509* leaf = d2i_X509(nullptr, &p, certificate.getLength());
+            bool timeOK = false;
+            if (leaf) {
+                // scegli il time_t di verifica
+                time_t tt = time(nullptr);
+                if (verify_time && verify_time[0]) {
+                    // parser “robusto” stile ASN.1 (YYMMDDhhmmssZ o YYYYMMDDhhmmssZ)
+                    time_t parsed{};
+                    if (parse_asn1_like_utc(verify_time, parsed)) tt = parsed;
+                }
+
+                // Confronta notBefore/notAfter con tt
+                const ASN1_TIME* nb = X509_get0_notBefore(leaf);
+                const ASN1_TIME* na = X509_get0_notAfter(leaf);
+                // OpenSSL helper: <0 se nb > tt (non ancora valido), >0 se na < tt (scaduto)
+                int tooEarly = X509_cmp_time(nb, &tt); // >0 => nb > tt (non valido ancora)
+                int tooLate  = X509_cmp_time(na, &tt); // <0 => na < tt (scaduto)
+                timeOK = (tooEarly <= 0) && (tooLate >= 0);
+                X509_free(leaf);
+            }
+            if (timeOK)  pSI->bitmask |=  VERIFIED_CERT_VALIDITY;
+            else         pSI->bitmask &= ~VERIFIED_CERT_VALIDITY;
+        }
         strcpy(pSI->szSigningTime, "");
 
         try
@@ -2145,7 +2514,58 @@ long verify_pdf(DISIGON_VERIFY_CONTEXT* pContext, UUCByteArray& data, VERIFY_INF
         pSI->nCertLen = certificate.getLength();
         pSI->pCertificate = new BYTE[pSI->nCertLen];
         memcpy(pSI->pCertificate, certificate.getContent(), pSI->nCertLen);
+        // Se hai percorsi CA nel contesto, mettili qui (altrimenti lascia nullptr)
+        
+        const char* ca_file = nullptr;   // es: pContext->szCAFile;
+        const char* ca_path = nullptr;   // es: pContext->szCAPath;
+        const char* extra_pem = nullptr; // es: pContext->pExtraCABundlePEM;
 
+        // 1) Tempo di verifica: usa la signingTime se presente, altrimenti "adesso"
+        const char* verify_time = (pSI->szSigningTime[0] ? pSI->szSigningTime : nullptr);
+
+        int chain_ok = verify_chain_from_der_at_time(
+            certificate.getContent(),
+            certificate.getLength(),
+            ca_file, ca_path, extra_pem,
+            verify_time
+        );
+
+        if (chain_ok) {
+            pSI->bitmask |= VERIFIED_CERT_CHAIN;
+        } else {
+            pSI->bitmask &= ~VERIFIED_CERT_CHAIN;
+            LOG_ERR((0, "verify_pdf", "Certificate chain: FAIL (signer %d)", i));
+        }
+
+        // 2) VALIDITY esplicita (indipendente dal pdfVerifier)
+        //    Se verify_time==nullptr, confrontiamo con l'ora corrente.
+        //    Usiamo OpenSSL per confrontare notBefore/notAfter con un time_t scelto.
+        {
+            // Costruisci X509 per leggere le date
+            const unsigned char* p = certificate.getContent();
+            X509* leaf = d2i_X509(nullptr, &p, certificate.getLength());
+            bool timeOK = false;
+            if (leaf) {
+                // scegli il time_t di verifica
+                time_t tt = time(nullptr);
+                if (verify_time && verify_time[0]) {
+                    // parser “robusto” stile ASN.1 (YYMMDDhhmmssZ o YYYYMMDDhhmmssZ)
+                    time_t parsed{};
+                    if (parse_asn1_like_utc(verify_time, parsed)) tt = parsed;
+                }
+
+                // Confronta notBefore/notAfter con tt
+                const ASN1_TIME* nb = X509_get0_notBefore(leaf);
+                const ASN1_TIME* na = X509_get0_notAfter(leaf);
+                // OpenSSL helper: <0 se nb > tt (non ancora valido), >0 se na < tt (scaduto)
+                int tooEarly = X509_cmp_time(nb, &tt); // >0 => nb > tt (non valido ancora)
+                int tooLate  = X509_cmp_time(na, &tt); // <0 => na < tt (scaduto)
+                timeOK = (tooEarly <= 0) && (tooLate >= 0);
+                X509_free(leaf);
+            }
+            if (timeOK)  pSI->bitmask |=  VERIFIED_CERT_VALIDITY;
+            else         pSI->bitmask &= ~VERIFIED_CERT_VALIDITY;
+        }
         if(si.hasTimeStampToken())
         {
             CTimeStampToken tst = si.getTimeStampToken();

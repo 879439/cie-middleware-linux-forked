@@ -58,7 +58,9 @@ CK_RV CK_ENTRY getVerifyInfo(int index, struct verifyInfo_t* vInfos)
         strcpy(vInfos->cadn, tmpSignerInfo.szCADN);
         strcpy(vInfos->signingTime, tmpSignerInfo.szSigningTime);
         vInfos->CertRevocStatus = tmpSignerInfo.pRevocationInfo->nRevocationStatus;
-        vInfos->isCertValid = (tmpSignerInfo.bitmask & VERIFIED_CERT_GOOD) == VERIFIED_CERT_GOOD;
+        vInfos->isCertValid =
+            (tmpSignerInfo.bitmask & VERIFIED_CERT_CHAIN) == VERIFIED_CERT_CHAIN;
+
         vInfos->isSignValid = (tmpSignerInfo.bitmask & VERIFIED_SIGNATURE) == VERIFIED_SIGNATURE;
     }
 
